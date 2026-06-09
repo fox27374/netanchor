@@ -11,7 +11,7 @@ services:
   netanchor:
     # Builds locally from the Containerfile. To use the published multi-arch
     # image from GHCR instead, remove the `build:` block and set:
-    #   image: ghcr.io/OWNER/netanchor:1.1.0
+    #   image: ghcr.io/fox27374/netanchor:1.1.0
     # (Podman/Docker automatically pull the right arch: amd64, arm64, or armv7.)
     build:
       context: .

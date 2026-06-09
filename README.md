@@ -103,13 +103,12 @@ Raspberry Pi 3/4/5 and ARM servers), and **`linux/arm/v7`** (32-bit Pi / older
 ARM). Podman or Docker automatically pull the variant matching your machine:
 
 ```sh
-podman pull ghcr.io/OWNER/netanchor:1.1.0
+podman pull ghcr.io/fox27374/netanchor:1.1.0
 podman run -d --name netanchor -p 8443:8443 -v netanchor-data:/data \
-  ghcr.io/OWNER/netanchor:1.1.0
+  ghcr.io/fox27374/netanchor:1.1.0
 ```
 
-Replace `OWNER` with your GitHub user/org. On a Raspberry Pi this is the only
-command you need — no building required.
+On a Raspberry Pi this is the only command you need — no building required.
 
 **Publishing** is handled by [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
 Push a version tag and it builds all three arches and pushes the manifest:
@@ -133,7 +132,7 @@ podman manifest create netanchor:1.1.0
 podman build --platform linux/amd64,linux/arm64,linux/arm/v7 \
   --manifest netanchor:1.1.0 --build-arg VERSION=1.1.0 -f Containerfile .
 podman manifest push --all netanchor:1.1.0 \
-  docker://ghcr.io/OWNER/netanchor:1.1.0
+  docker://ghcr.io/fox27374/netanchor:1.1.0
 ```
 
 ### Why a volume (and not a database)?
