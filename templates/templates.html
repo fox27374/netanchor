@@ -1,0 +1,84 @@
+{{define "content"}}
+<h2>Certificate templates</h2>
+<p class="muted">Reusable presets for issuing certificates and signing CSRs. Pick a template on the Issue / Sign pages to pre-fill the form.</p>
+
+<div class="panel">
+  <p class="cardtitle">Templates</p>
+  {{$tmpls := .Data}}
+  {{if $tmpls}}
+  <table>
+    <thead><tr><th>Name</th><th>Profile</th><th>Key</th><th>Validity</th><th>Organization</th><th></th></tr></thead>
+    <tbody>
+      {{range $tmpls}}
+      <tr>
+        <td><a href="/templates/edit/{{.Name}}">{{.Name}}</a>{{if .Description}}<div class="muted" style="font-size:12px">{{.Description}}</div>{{end}}</td>
+        <td>{{.Profile}}</td>
+        <td class="mono">{{.Algo}}</td>
+        <td class="mono">{{.ValidDays}}d</td>
+        <td>{{if .Organization}}{{.Organization}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td style="text-align:right">
+          <a href="/templates/edit/{{.Name}}">Edit</a>
+          <form method="post" action="/templates/delete" onsubmit="return confirm('Delete template {{.Name}}?')" style="display:inline;margin-left:10px">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <button class="linklike" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No templates yet. Create one below.</div>
+  {{end}}
+</div>
+
+<div class="panel">
+  <p class="cardtitle">New template</p>
+  <form method="post" action="/templates/add">
+    <div class="row">
+      <div>
+        <label for="t_name">Name</label>
+        <input id="t_name" name="name" placeholder="web-server-1y" required>
+      </div>
+      <div>
+        <label for="t_desc">Description (optional)</label>
+        <input id="t_desc" name="description" placeholder="Internal web servers, 1 year">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="t_profile">Profile</label>
+        <select id="t_profile" name="profile">
+          <option value="server">Server (TLS server auth)</option>
+          <option value="client">Client (TLS client auth)</option>
+          <option value="both">Server + Client</option>
+        </select>
+      </div>
+      <div>
+        <label for="t_algo">Key algorithm</label>
+        <select id="t_algo" name="algo">
+          <option value="ecp256">ECDSA P-256</option>
+          <option value="ecp384">ECDSA P-384</option>
+          <option value="rsa2048">RSA 2048</option>
+          <option value="rsa4096">RSA 4096</option>
+        </select>
+      </div>
+      <div>
+        <label for="t_days">Validity (days)</label>
+        <input id="t_days" name="valid_days" type="number" value="365" min="1">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="t_org">Organization (optional)</label>
+        <input id="t_org" name="organization" placeholder="Acme Corp">
+      </div>
+      <div>
+        <label for="t_country">Country code (optional)</label>
+        <input id="t_country" name="country" placeholder="AT" maxlength="2">
+      </div>
+    </div>
+    <button class="btn" type="submit">Add template</button>
+  </form>
+</div>
+{{end}}

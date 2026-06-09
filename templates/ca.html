@@ -1,0 +1,150 @@
+{{define "content"}}
+{{$ca := .Data}}
+
+<h2>Certificate Authority</h2>
+
+{{/* ------------------------------ ROOT ------------------------------ */}}
+{{if $ca.Root}}
+<div class="panel">
+  <p class="cardtitle">Root CA</p>
+  <table class="kv">
+    <tr><th>Common Name</th><td>{{$ca.Root.CommonName}}</td></tr>
+    <tr><th>Expires</th><td>{{$ca.Root.NotAfter.Format "2006-01-02 15:04 MST"}}</td></tr>
+    <tr><th>Private key</th><td>
+      {{if $ca.RootEncrypted}}<span class="pill lock">&#128274; Passphrase-protected</span>{{else}}<span class="pill">Unencrypted</span>{{end}}
+    </td></tr>
+  </table>
+  <div class="links" style="margin-top:16px">
+    <a href="/ca/view/root">View details</a>
+    <a href="/download/ca/root/cert">&#11015; Download certificate</a>
+  </div>
+</div>
+{{else if not $.IsAdmin}}
+<div class="panel">
+  <p class="cardtitle">Root CA</p>
+  <p class="muted">No certificate authority has been created yet. Ask an administrator to set one up.</p>
+</div>
+{{else}}
+<div class="panel">
+  <p class="cardtitle">Create root CA</p>
+  <p class="muted">This is the trust anchor for everything NetAnchor issues. Distribute its certificate to clients that need to trust your certs.</p>
+  <form method="post" action="/ca/root">
+    <label for="r_cn">Common Name (CA name)</label>
+    <input id="r_cn" name="common_name" placeholder="NetAnchor Root CA" required>
+    <div class="row">
+      <div>
+        <label for="r_org">Organization (optional)</label>
+        <input id="r_org" name="organization" placeholder="Acme Corp">
+      </div>
+      <div>
+        <label for="r_country">Country code (optional)</label>
+        <input id="r_country" name="country" placeholder="AT" maxlength="2">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="r_algo">Key algorithm</label>
+        <select id="r_algo" name="algo">
+          <option value="ecp384">ECDSA P-384 (recommended)</option>
+          <option value="ecp256">ECDSA P-256</option>
+          <option value="rsa4096">RSA 4096</option>
+          <option value="rsa2048">RSA 2048</option>
+        </select>
+      </div>
+      <div>
+        <label for="r_days">Validity (days)</label>
+        <input id="r_days" name="valid_days" type="number" value="3650" min="1">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="r_pass">Passphrase (optional)</label>
+        <input id="r_pass" name="passphrase" type="password" placeholder="Encrypts the CA private key at rest" autocomplete="new-password">
+      </div>
+      <div>
+        <label for="r_pass2">Confirm passphrase</label>
+        <input id="r_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+      </div>
+    </div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">If set, you'll need this passphrase whenever you issue or sign with this CA. There is no recovery if you forget it.</p>
+    <button class="btn" type="submit">Create root CA</button>
+  </form>
+</div>
+{{end}}
+
+{{/* -------------------------- INTERMEDIATE -------------------------- */}}
+{{if $ca.Root}}
+{{if $ca.Intermediate}}
+<div class="panel">
+  <p class="cardtitle">Intermediate CA <span class="muted">(optional)</span></p>
+  <table class="kv">
+    <tr><th>Common Name</th><td>{{$ca.Intermediate.CommonName}}</td></tr>
+    <tr><th>Expires</th><td>{{$ca.Intermediate.NotAfter.Format "2006-01-02 15:04 MST"}}</td></tr>
+    <tr><th>Signed by</th><td>Root CA</td></tr>
+    <tr><th>Private key</th><td>
+      {{if $ca.IntermediateEncrypted}}<span class="pill lock">&#128274; Passphrase-protected</span>{{else}}<span class="pill">Unencrypted</span>{{end}}
+    </td></tr>
+  </table>
+  <div class="links" style="margin-top:16px">
+    <a href="/ca/view/intermediate">View details</a>
+    <a href="/download/ca/intermediate/cert">&#11015; Certificate</a>
+    <a href="/download/ca/intermediate/chain">&#11015; Chain (intermediate + root)</a>
+  </div>
+</div>
+{{else if $.IsAdmin}}
+<div class="panel">
+  <p class="cardtitle">Intermediate CA <span class="muted">(optional)</span></p>
+  <p class="muted">Optionally create an intermediate CA signed by your root. You can then issue certificates from the intermediate, keeping the root key offline-ish. Not required — you can issue directly from the root.</p>
+  <details class="adv">
+    <summary>Create an intermediate CA</summary>
+    <div>
+      <form method="post" action="/ca/intermediate">
+        <label for="i_cn">Common Name</label>
+        <input id="i_cn" name="common_name" placeholder="NetAnchor Intermediate CA" required>
+        <div class="row">
+          <div>
+            <label for="i_org">Organization (optional)</label>
+            <input id="i_org" name="organization" placeholder="Acme Corp">
+          </div>
+          <div>
+            <label for="i_country">Country code (optional)</label>
+            <input id="i_country" name="country" placeholder="AT" maxlength="2">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="i_algo">Key algorithm</label>
+            <select id="i_algo" name="algo">
+              <option value="ecp256">ECDSA P-256 (recommended)</option>
+              <option value="ecp384">ECDSA P-384</option>
+              <option value="rsa4096">RSA 4096</option>
+              <option value="rsa2048">RSA 2048</option>
+            </select>
+          </div>
+          <div>
+            <label for="i_days">Validity (days)</label>
+            <input id="i_days" name="valid_days" type="number" value="1825" min="1">
+          </div>
+        </div>
+        {{if $ca.RootEncrypted}}
+        <label for="i_rootpass">Root CA passphrase <span class="pill lock">required</span></label>
+        <input id="i_rootpass" name="root_passphrase" type="password" placeholder="Passphrase that unlocks the root key" autocomplete="off">
+        {{end}}
+        <div class="row">
+          <div>
+            <label for="i_pass">New passphrase for this intermediate (optional)</label>
+            <input id="i_pass" name="passphrase" type="password" autocomplete="new-password">
+          </div>
+          <div>
+            <label for="i_pass2">Confirm passphrase</label>
+            <input id="i_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+          </div>
+        </div>
+        <button class="btn" type="submit">Create intermediate CA</button>
+      </form>
+    </div>
+  </details>
+</div>
+{{end}}
+{{end}}
+{{end}}

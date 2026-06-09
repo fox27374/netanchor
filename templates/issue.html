@@ -1,0 +1,91 @@
+{{define "content"}}
+<div class="panel">
+  <h2>Issue a certificate</h2>
+  <p class="muted">NetAnchor generates a fresh key pair and signs a certificate with your CA. You'll be able to download the certificate and the private key.</p>
+  <form method="post" action="/issue">
+    {{if .Data}}
+    <label for="template">Template (optional)</label>
+    <select id="template" name="_template">
+      <option value="">— none —</option>
+      {{range .Data}}<option value="{{.Name}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>{{end}}
+    </select>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Selecting a template fills the fields below; you can still edit them.</p>
+    {{end}}
+
+    <label for="common_name">Common Name</label>
+    <input id="common_name" name="common_name" placeholder="example.local" required>
+
+    <label for="organization">Organization (optional)</label>
+    <input id="organization" name="organization" placeholder="Acme Corp">
+
+    <label for="sans">Subject Alternative Names (optional)</label>
+    <textarea id="sans" name="sans" placeholder="example.local&#10;www.example.local&#10;127.0.0.1" style="min-height:90px"></textarea>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">One per line (or comma separated). DNS names and IP addresses are detected automatically.</p>
+
+    <div class="row">
+      <div>
+        <label for="issuer">Issuing CA</label>
+        <select id="issuer" name="issuer">
+          <option value="root">Root CA</option>
+          {{if .HasIntermediate}}<option value="intermediate">Intermediate CA</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label for="profile">Profile</label>
+        <select id="profile" name="profile">
+          <option value="server">Server (TLS server auth)</option>
+          <option value="client">Client (TLS client auth)</option>
+          <option value="both">Server + Client</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="algo">Key algorithm</label>
+        <select id="algo" name="algo">
+          <option value="ecp256">ECDSA P-256 (recommended)</option>
+          <option value="ecp384">ECDSA P-384</option>
+          <option value="rsa2048">RSA 2048</option>
+          <option value="rsa4096">RSA 4096</option>
+        </select>
+      </div>
+      <div>
+        <label for="valid_days">Validity (days)</label>
+        <input id="valid_days" name="valid_days" type="number" value="365" min="1">
+      </div>
+    </div>
+
+    <details class="adv">
+      <summary>Issuing CA passphrase</summary>
+      <div>
+        <label for="ca_passphrase">Passphrase</label>
+        <input id="ca_passphrase" name="ca_passphrase" type="password" placeholder="Only required if the issuing CA key is passphrase-protected" autocomplete="off">
+      </div>
+    </details>
+
+    <button class="btn" type="submit">Issue certificate</button>
+  </form>
+</div>
+{{if .Data}}
+<script>
+  var TT = {
+    {{range .Data}}"{{.Name}}": {org:"{{.Organization}}", algo:"{{.Algo}}", days:{{.ValidDays}}, profile:"{{.Profile}}"},
+    {{end}}
+  };
+  (function () {
+    var sel = document.getElementById('template');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      var t = TT[this.value];
+      if (!t) return;
+      var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
+      set('organization', t.org);
+      set('valid_days', t.days);
+      set('algo', t.algo);
+      set('profile', t.profile);
+    });
+  })();
+</script>
+{{end}}
+{{end}}

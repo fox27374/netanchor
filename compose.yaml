@@ -1,0 +1,68 @@
+# NetAnchor — Podman / Docker Compose deployment.
+#
+#   podman compose up -d         # build + run in the background
+#   podman compose logs -f       # follow logs
+#   podman compose down          # stop and remove (named volume is kept)
+#
+# Then open https://127.0.0.1:8443 and create the admin account on first run.
+# (Also works with `docker compose` and `podman-compose`.)
+
+services:
+  netanchor:
+    # Builds locally from the Containerfile. To use the published multi-arch
+    # image from GHCR instead, remove the `build:` block and set:
+    #   image: ghcr.io/OWNER/netanchor:1.1.0
+    # (Podman/Docker automatically pull the right arch: amd64, arm64, or armv7.)
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        VERSION: "1.1.0"
+    image: localhost/netanchor:1.1.0
+    container_name: netanchor
+    restart: unless-stopped
+
+    ports:
+      - "8443:8443"
+
+    environment:
+      # Bind to all interfaces inside the container (reached via the published port).
+      NETANCHOR_ADDR: "0.0.0.0:8443"
+      NETANCHOR_DATA: "/data"
+      # TLS is on by default. List every name/IP clients will use so they appear
+      # in the auto-generated server certificate's SANs.
+      NETANCHOR_TLS_HOSTS: "localhost,127.0.0.1"
+      # NETANCHOR_TLS: "off"            # serve plain HTTP (e.g. behind a TLS proxy)
+      # NETANCHOR_CA_PASSPHRASE: "..."  # unlock an encrypted root to issue the server cert
+      # NETANCHOR_DISABLE_AUTH: "1"     # disable login (trusted local use only)
+
+    volumes:
+      # Named volume holds the CA(s), issued certs, TLS server cert,
+      # session-signing key, and users.json.
+      - netanchor-data:/data
+
+    # The image already runs as non-root (uid 65532); this enforces it at runtime.
+    user: "65532:65532"
+
+    # Container-level health check (works regardless of image format). The binary
+    # self-probes /healthz and tolerates the self-signed TLS certificate.
+    healthcheck:
+      test: ["CMD", "netanchor", "-health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+
+    # Hardening: no privilege escalation, drop all Linux capabilities, read-only
+    # root filesystem (the app only writes to the /data volume; /tmp is a tmpfs
+    # for any multipart upload spillover).
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  netanchor-data:

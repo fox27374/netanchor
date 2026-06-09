@@ -1,0 +1,9 @@
+{{define "content"}}
+<div class="panel">
+  <h2>{{.Data}}</h2>
+  {{if .Message}}<div class="alert ok">{{.Message}}</div>{{end}}
+  <div class="links">
+    <a class="btn secondary" href="/">Back to dashboard</a>
+  </div>
+</div>
+{{end}}

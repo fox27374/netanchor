@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="authwrap">
+  <div class="panel">
+    <h2 style="margin-top:0">Welcome to NetAnchor</h2>
+    <p class="muted">Create the first administrator account. This account has full control over the CA, certificates, and users.</p>
+    <form method="post" action="/setup">
+      <label for="username">Admin username</label>
+      <input id="username" name="username" autocomplete="username" autofocus required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required>
+      <label for="password_confirm">Confirm password</label>
+      <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" required>
+      <button class="btn" type="submit" style="width:100%">Create administrator</button>
+    </form>
+  </div>
+</div>
+{{end}}

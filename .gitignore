@@ -1,0 +1,22 @@
+# Compiled binary
+/netanchor
+
+# Runtime data (CAs, issued certs, keys, users, sessions, TLS cert)
+/netanchor-data/
+/data/
+
+# Certificates / keys / requests — never commit secrets
+*.pem
+*.key
+*.csr
+*.p12
+*.pfx
+*.der
+*.p7b
+
+# Local scratch
+/_archcheck/
+
+# OS / editor
+.DS_Store
+*.swp

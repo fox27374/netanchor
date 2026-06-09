@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="authwrap">
+  <div class="panel">
+    <h2 style="margin-top:0">Sign in to NetAnchor</h2>
+    <form method="post" action="/login">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" autofocus required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="btn" type="submit" style="width:100%">Sign in</button>
+    </form>
+  </div>
+</div>
+{{end}}

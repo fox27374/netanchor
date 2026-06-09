@@ -1,0 +1,74 @@
+{{define "content"}}
+{{if not .HasCA}}
+<div class="panel">
+  <h2>Welcome to NetAnchor</h2>
+  {{if .IsAdmin}}
+  <p class="muted">You don't have a root certificate authority yet. Create one to start issuing certificates and signing CSRs.</p>
+  <a class="btn" href="/ca">Create your root CA</a>
+  {{else}}
+  <p class="muted">No certificate authority has been created yet. Ask an administrator to set one up.</p>
+  {{end}}
+</div>
+{{else}}
+<div class="panel">
+  <h2>Certificate Authority</h2>
+  <p class="muted">Your root CA is active{{if .HasIntermediate}}, with an intermediate CA available as an issuer{{end}}. Distribute the CA certificate to clients that need to trust certificates you issue.</p>
+  <div class="links">
+    <a href="/download/ca/root/cert">&#11015; Download CA certificate</a>
+    <a href="/ca">{{if .IsAdmin}}Manage CA{{else}}View CA{{end}}</a>
+    {{if .IsAdmin}}
+    <a href="/issue">Issue a certificate</a>
+    <a href="/sign">Sign a CSR</a>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+<div class="panel">
+  <h2>Certificates</h2>
+  {{$recs := .Data}}
+  {{if $recs}}
+  <table>
+    <thead>
+      <tr><th>Common Name</th><th>Type</th><th>Issuer</th><th>Expires</th><th>Downloads</th></tr>
+    </thead>
+    <tbody>
+      {{range $recs}}
+      <tr>
+        <td>
+          {{if eq .Kind "root"}}<a href="/ca/view/root">{{if .CommonName}}{{.CommonName}}{{else}}(none){{end}}</a>
+          {{else if eq .Kind "intermediate"}}<a href="/ca/view/intermediate">{{.CommonName}}</a>
+          {{else}}<a href="/cert/{{.Serial}}">{{if .CommonName}}{{.CommonName}}{{else}}(none){{end}}</a>{{end}}
+          {{if .KeyEnc}}<span class="pill lock" title="private key is passphrase-protected">&#128274;</span>{{end}}
+        </td>
+        <td>
+          {{if eq .Kind "root"}}<span class="tag ca">Root CA</span>{{end}}
+          {{if eq .Kind "intermediate"}}<span class="tag ca">Intermediate</span>{{end}}
+          {{if eq .Kind "issued"}}<span class="tag issued">Issued</span>{{end}}
+          {{if eq .Kind "csr"}}<span class="tag csr">Signed CSR</span>{{end}}
+        </td>
+        <td class="muted" style="font-size:13px">
+          {{if eq .Kind "root"}}self{{else if eq .Kind "intermediate"}}root{{else}}{{.IssuerID}}{{end}}
+        </td>
+        <td class="mono">{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
+        <td class="links">
+          {{if eq .Kind "root"}}
+            <a href="/download/ca/root/cert">cert</a>
+          {{else if eq .Kind "intermediate"}}
+            <a href="/download/ca/intermediate/cert">cert</a>
+            <a href="/download/ca/intermediate/chain">chain</a>
+          {{else}}
+            <a href="/download/{{.Serial}}/cert">cert</a>
+            {{if and .HasKey $.IsAdmin}}<a href="/download/{{.Serial}}/key">key</a>{{end}}
+            {{if eq .IssuerID "intermediate"}}<a href="/download/{{.Serial}}/chain">chain</a>{{end}}
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No certificates yet.</div>
+  {{end}}
+</div>
+{{end}}

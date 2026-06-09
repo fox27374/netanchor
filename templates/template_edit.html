@@ -1,0 +1,47 @@
+{{define "content"}}
+{{$t := .Data}}
+<h2>Edit template</h2>
+<div class="panel">
+  <p class="cardtitle">{{$t.Name}}</p>
+  <form method="post" action="/templates/edit/{{$t.Name}}">
+    <label for="t_desc">Description (optional)</label>
+    <input id="t_desc" name="description" value="{{$t.Description}}" placeholder="Internal web servers, 1 year">
+
+    <div class="row">
+      <div>
+        <label for="t_profile">Profile</label>
+        <select id="t_profile" name="profile">
+          <option value="server" {{if eq (printf "%s" $t.Profile) "server"}}selected{{end}}>Server (TLS server auth)</option>
+          <option value="client" {{if eq (printf "%s" $t.Profile) "client"}}selected{{end}}>Client (TLS client auth)</option>
+          <option value="both" {{if eq (printf "%s" $t.Profile) "both"}}selected{{end}}>Server + Client</option>
+        </select>
+      </div>
+      <div>
+        <label for="t_algo">Key algorithm</label>
+        <select id="t_algo" name="algo">
+          <option value="ecp256" {{if eq (printf "%s" $t.Algo) "ecp256"}}selected{{end}}>ECDSA P-256</option>
+          <option value="ecp384" {{if eq (printf "%s" $t.Algo) "ecp384"}}selected{{end}}>ECDSA P-384</option>
+          <option value="rsa2048" {{if eq (printf "%s" $t.Algo) "rsa2048"}}selected{{end}}>RSA 2048</option>
+          <option value="rsa4096" {{if eq (printf "%s" $t.Algo) "rsa4096"}}selected{{end}}>RSA 4096</option>
+        </select>
+      </div>
+      <div>
+        <label for="t_days">Validity (days)</label>
+        <input id="t_days" name="valid_days" type="number" value="{{$t.ValidDays}}" min="1">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="t_org">Organization (optional)</label>
+        <input id="t_org" name="organization" value="{{$t.Organization}}" placeholder="Acme Corp">
+      </div>
+      <div>
+        <label for="t_country">Country code (optional)</label>
+        <input id="t_country" name="country" value="{{$t.Country}}" maxlength="2">
+      </div>
+    </div>
+    <button class="btn" type="submit">Save changes</button>
+    <a href="/templates" class="btn secondary">Cancel</a>
+  </form>
+</div>
+{{end}}

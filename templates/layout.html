@@ -1,0 +1,117 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · NetAnchor CA</title>
+<style>
+  :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --muted:#94a3b8; --ok:#34d399; --err:#f87171; --line:#334155; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:#e2e8f0; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:0 24px; display:flex; align-items:center; gap:24px; }
+  header h1 { font-size:18px; margin:0; padding:16px 0; letter-spacing:.5px; }
+  header h1 .lock { color:var(--accent); }
+  nav { display:flex; gap:4px; }
+  nav a { color:var(--muted); text-decoration:none; padding:18px 14px; font-size:14px; border-bottom:2px solid transparent; }
+  nav a:hover { color:#e2e8f0; }
+  nav a.active { color:var(--accent); border-bottom-color:var(--accent); }
+  main { max-width:920px; margin:0 auto; padding:32px 24px; }
+  h2 { font-weight:600; margin-top:0; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; margin-bottom:24px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
+  input, select, textarea { width:100%; padding:10px 12px; background:#0b1220; border:1px solid var(--line); border-radius:8px; color:#e2e8f0; font-size:14px; font-family:inherit; }
+  textarea { resize:vertical; min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:180px; }
+  .btn { display:inline-block; margin-top:20px; background:var(--accent); color:#04263a; border:none; padding:11px 20px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none; }
+  .btn:hover { filter:brightness(1.08); }
+  .btn.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  td.mono { font-family: ui-monospace, Menlo, monospace; color:var(--muted); font-size:12px; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .tag.ca { background:#7c3aed33; color:#c4b5fd; }
+  .tag.issued { background:#0891b233; color:#67e8f9; }
+  .tag.csr { background:#ca8a0433; color:#fde047; }
+  .alert { padding:14px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; }
+  .alert.err { background:#7f1d1d33; border:1px solid var(--err); color:#fecaca; }
+  .alert.ok { background:#064e3b33; border:1px solid var(--ok); color:#bbf7d0; }
+  .muted { color:var(--muted); }
+  .links a { color:var(--accent); text-decoration:none; margin-right:12px; font-size:13px; }
+  .empty { text-align:center; padding:40px; color:var(--muted); }
+  code { background:#0b1220; padding:2px 6px; border-radius:4px; font-size:13px; }
+  .kv { width:100%; border-collapse:collapse; font-size:14px; }
+  .kv th { width:200px; vertical-align:top; color:var(--muted); font-weight:500; text-transform:none; letter-spacing:0; font-size:14px; }
+  .kv td, .kv th { padding:8px 12px; border-bottom:1px solid var(--line); text-align:left; }
+  .kv td.wrap { font-family: ui-monospace, Menlo, monospace; font-size:12px; word-break:break-all; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#33415566; color:var(--muted); margin-right:6px; }
+  .pill.lock { background:#15803d33; color:#86efac; }
+  .pill.warn { background:#b4530933; color:#fdba74; }
+  .pill.bad { background:#7f1d1d55; color:#fecaca; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  @media (max-width:680px){ .grid2 { grid-template-columns:1fr; } }
+  .cardtitle { font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin:0 0 12px; }
+  details.adv summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:8px; }
+  details.adv > div { margin-top:12px; }
+  .ident { background:#0b1220; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:4px 0 22px; }
+  .identrow { margin-bottom:14px; }
+  .identrow:last-child { margin-bottom:0; }
+  .identval { font-size:16px; margin-top:5px; }
+  .pill.san { background:#0891b233; color:#67e8f9; font-size:12px; margin:3px 6px 3px 0; }
+  .userbox { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .who { font-size:13px; color:var(--muted); }
+  .rolebadge { display:inline-block; padding:1px 7px; border-radius:999px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; background:#33415566; color:var(--muted); }
+  .rolebadge.admin { background:#7c3aed33; color:#c4b5fd; }
+  .linklike { background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; text-decoration:underline; }
+  .linklike:hover { color:#e2e8f0; }
+  .authwrap { max-width:380px; margin:8vh auto 0; }
+  .appfooter { text-align:center; color:var(--muted); font-size:12px; margin-top:32px; opacity:.7; }
+  .pemwrap { position:relative; }
+  .pembox { width:100%; background:#0b1220; border:1px solid var(--line); border-radius:8px; color:#cbd5e1; font-family: ui-monospace, Menlo, monospace; font-size:12px; padding:12px; white-space:pre; overflow:auto; resize:vertical; }
+  .copybtn { position:absolute; top:8px; right:8px; background:var(--panel); color:var(--accent); border:1px solid var(--accent); border-radius:6px; font-size:12px; padding:4px 10px; cursor:pointer; }
+  .copybtn:hover { filter:brightness(1.1); }
+  .fmtrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .fmtrow .lbl { color:var(--muted); font-size:12px; min-width:90px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="lock">&#128274;</span> NetAnchor</h1>
+  {{if .Authenticated}}
+  <nav>
+    <a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">Dashboard</a>
+    <a href="/ca" class="{{if eq .Active "ca"}}active{{end}}">{{if .HasCA}}CA{{else}}Create CA{{end}}</a>
+    {{if .IsAdmin}}
+    <a href="/issue" class="{{if eq .Active "issue"}}active{{end}}">Issue Cert</a>
+    <a href="/sign" class="{{if eq .Active "sign"}}active{{end}}">Sign CSR</a>
+    <a href="/templates" class="{{if eq .Active "templates"}}active{{end}}">Templates</a>
+    <a href="/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
+    {{end}}
+  </nav>
+  {{if .AuthEnabled}}
+  <div class="userbox">
+    <span class="who">{{.Username}} <span class="rolebadge {{if .IsAdmin}}admin{{end}}">{{.Role}}</span></span>
+    <form method="post" action="/logout" style="display:inline"><button class="linklike" type="submit">Sign out</button></form>
+  </div>
+  {{end}}
+  {{end}}
+</header>
+<main>
+  {{if .Error}}<div class="alert err">{{.Error}}</div>{{end}}
+  {{template "content" .}}
+  <footer class="appfooter">NetAnchor {{.Version}}</footer>
+</main>
+<script>
+  function copyFrom(id, btn) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    navigator.clipboard.writeText(el.value || el.textContent).then(function () {
+      var old = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = old; }, 1200);
+    });
+  }
+</script>
+</body>
+</html>{{end}}

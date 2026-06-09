@@ -1,0 +1,111 @@
+{{define "content"}}
+{{$d := .Data}}
+{{$i := $d.Info}}
+<div class="panel">
+  <h2 style="margin-bottom:4px">{{if $i.CommonName}}{{$i.CommonName}}{{else}}{{$i.Subject}}{{end}}</h2>
+  <div style="margin-bottom:16px">
+    <span class="pill">{{$d.KindTag}}</span>
+    {{if $i.IsCA}}<span class="pill warn">CA</span>{{end}}
+    {{if $i.Expired}}<span class="pill bad">Expired</span>{{else}}<span class="pill lock">{{$i.DaysLeft}} days left</span>{{end}}
+  </div>
+
+  {{/* The two fields that matter most: Common Name and the SANs. */}}
+  <div class="ident">
+    <div class="identrow">
+      <span class="cardtitle">Common Name</span>
+      <div class="identval">{{if $i.CommonName}}{{$i.CommonName}}{{else}}<span class="muted">(none)</span>{{end}}</div>
+    </div>
+    <div class="identrow">
+      <span class="cardtitle">Subject Alternative Names</span>
+      <div class="identval">
+        {{if or $i.DNSNames $i.IPAddresses}}
+          {{range $i.DNSNames}}<span class="pill san">DNS: {{.}}</span>{{end}}
+          {{range $i.IPAddresses}}<span class="pill san">IP: {{.}}</span>{{end}}
+        {{else}}<span class="muted">none</span>{{end}}
+      </div>
+    </div>
+  </div>
+
+  <table class="kv">
+    <tr><th>Subject</th><td>{{$i.Subject}}</td></tr>
+    <tr><th>Issuer</th><td>{{$i.Issuer}}</td></tr>
+    <tr><th>Serial</th><td class="wrap">{{$i.SerialHex}}</td></tr>
+    <tr><th>Valid from</th><td>{{$i.NotBefore}}</td></tr>
+    <tr><th>Valid until</th><td>{{$i.NotAfter}}</td></tr>
+    <tr><th>Public key</th><td>{{$i.PublicKey}}</td></tr>
+    <tr><th>Signature</th><td>{{$i.SignatureAlgo}}</td></tr>
+    {{if $i.IsCA}}<tr><th>CA path length</th><td>{{$i.MaxPathLen}}</td></tr>{{end}}
+    {{if $i.KeyUsages}}<tr><th>Key usage</th><td>{{range $i.KeyUsages}}<span class="pill">{{.}}</span>{{end}}</td></tr>{{end}}
+    {{if $i.ExtKeyUsages}}<tr><th>Extended key usage</th><td>{{range $i.ExtKeyUsages}}<span class="pill">{{.}}</span>{{end}}</td></tr>{{end}}
+    {{if $i.EmailAddresses}}<tr><th>Emails</th><td>{{range $i.EmailAddresses}}<span class="pill">{{.}}</span>{{end}}</td></tr>{{end}}
+    {{if $i.URIs}}<tr><th>URIs</th><td>{{range $i.URIs}}<span class="pill">{{.}}</span>{{end}}</td></tr>{{end}}
+    <tr><th>SHA-256 fingerprint</th><td class="wrap">{{$i.SHA256}}</td></tr>
+    <tr><th>SHA-1 fingerprint</th><td class="wrap">{{$i.SHA1}}</td></tr>
+  </table>
+
+  <div style="margin-top:22px">
+    <p class="cardtitle">Download</p>
+    {{if $d.IsCAView}}
+      <div class="fmtrow">
+        <span class="lbl">Certificate</span>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/cert">PEM</a>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/der">DER</a>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/p7b">PKCS#7</a>
+      </div>
+      {{if $d.CanChain}}
+      <div class="fmtrow" style="margin-top:8px">
+        <span class="lbl">Chain</span>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/chain">PEM</a>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/p7b">PKCS#7</a>
+      </div>
+      {{end}}
+    {{else}}
+      <div class="fmtrow">
+        <span class="lbl">Certificate</span>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/cert">PEM</a>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/der">DER</a>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/p7b">PKCS#7</a>
+        {{if $d.CanChain}}<a class="btn secondary" href="/download/{{$d.Serial}}/chain">Chain (PEM)</a>{{end}}
+      </div>
+      {{if and $d.HasKey $.IsAdmin}}
+      <div class="fmtrow" style="margin-top:8px">
+        <span class="lbl">Private key</span>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/key">PEM</a>
+      </div>
+      {{end}}
+    {{end}}
+  </div>
+
+  <div class="links" style="margin-top:20px">
+    {{if $d.IsCAView}}<a href="/ca">Back to CA</a>{{else}}<a href="/">Back to dashboard</a>{{end}}
+  </div>
+</div>
+
+{{/* Inline PEM, ready to copy & paste. */}}
+<div class="panel">
+  <p class="cardtitle">Certificate (PEM)</p>
+  <div class="pemwrap">
+    <button class="copybtn" type="button" onclick="copyFrom('certpem', this)">Copy</button>
+    <textarea id="certpem" class="pembox" rows="12" readonly>{{$d.CertPEM}}</textarea>
+  </div>
+  {{if $d.KeyPEM}}
+  <p class="cardtitle" style="margin-top:20px">Private key (PEM)</p>
+  <div class="pemwrap">
+    <button class="copybtn" type="button" onclick="copyFrom('keypem', this)">Copy</button>
+    <textarea id="keypem" class="pembox" rows="9" readonly>{{$d.KeyPEM}}</textarea>
+  </div>
+  {{end}}
+</div>
+
+{{if and (not $d.IsCAView) $d.HasKey $.IsAdmin}}
+<div class="panel">
+  <p class="cardtitle">Export PKCS#12 (.p12 / .pfx)</p>
+  <p class="muted">Bundles the certificate, its private key, and the issuing chain into a single password-protected file for import into browsers, Windows, macOS Keychain, or Java keystores.</p>
+  <form method="post" action="/download/{{$d.Serial}}/p12">
+    <label for="p12pw">Export password</label>
+    <input id="p12pw" name="password" type="password" autocomplete="new-password" placeholder="Protects the .p12 file (leave empty for none)">
+    <button class="btn" type="submit">Download .p12</button>
+  </form>
+</div>
+{{end}}
+{{end}}

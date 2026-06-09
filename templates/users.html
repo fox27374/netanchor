@@ -1,0 +1,66 @@
+{{define "content"}}
+<h2>Users</h2>
+
+<div class="panel">
+  <p class="cardtitle">Accounts</p>
+  {{$users := .Data}}
+  {{if $users}}
+  <table>
+    <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+      {{range $users}}
+      <tr>
+        <td>{{.Username}}{{if eq .Username $.Username}} <span class="muted">(you)</span>{{end}}</td>
+        <td>
+          {{if eq (printf "%s" .Role) "admin"}}<span class="rolebadge admin">admin</span>{{else}}<span class="rolebadge">viewer</span>{{end}}
+        </td>
+        <td class="mono">{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
+        <td style="text-align:right">
+          <form method="post" action="/users/delete" onsubmit="return confirm('Delete user {{.Username}}?')" style="display:inline">
+            <input type="hidden" name="username" value="{{.Username}}">
+            <button class="linklike" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No users.</div>
+  {{end}}
+</div>
+
+<div class="panel">
+  <p class="cardtitle">Add user</p>
+  <form method="post" action="/users/add">
+    <div class="row">
+      <div>
+        <label for="u_name">Username</label>
+        <input id="u_name" name="username" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="u_role">Role</label>
+        <select id="u_role" name="role">
+          <option value="viewer">Viewer (read-only)</option>
+          <option value="admin">Admin (full control)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="u_pw">Password</label>
+        <input id="u_pw" name="password" type="password" autocomplete="new-password" required>
+      </div>
+      <div>
+        <label for="u_pw2">Confirm password</label>
+        <input id="u_pw2" name="password_confirm" type="password" autocomplete="new-password" required>
+      </div>
+    </div>
+    <button class="btn" type="submit">Add user</button>
+  </form>
+  <p class="muted" style="font-size:12px;margin:12px 0 0">
+    <strong>Admin</strong>: manage CAs, issue/sign, download private keys, manage users.
+    <strong>Viewer</strong>: view and download public certificates and chains only.
+  </p>
+</div>
+{{end}}

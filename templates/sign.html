@@ -1,0 +1,78 @@
+{{define "content"}}
+<div class="panel">
+  <h2>Sign a certificate signing request</h2>
+  <p class="muted">Paste a PEM-encoded CSR or upload a file. NetAnchor verifies the request signature and issues a certificate signed by your CA. The requester keeps their own private key.</p>
+  <form method="post" action="/sign" enctype="multipart/form-data">
+    {{if .Data}}
+    <label for="template">Template (optional)</label>
+    <select id="template" name="_template">
+      <option value="">— none —</option>
+      {{range .Data}}<option value="{{.Name}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>{{end}}
+    </select>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">A template sets the profile and validity below (subject and key come from the CSR).</p>
+    {{end}}
+
+    <label for="csr">CSR (PEM)</label>
+    <textarea id="csr" name="csr" placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"></textarea>
+
+    <label for="csr_file">…or upload a .csr / .pem file</label>
+    <input id="csr_file" name="csr_file" type="file" accept=".csr,.pem,.req,.txt">
+
+    <div class="row">
+      <div>
+        <label for="issuer">Issuing CA</label>
+        <select id="issuer" name="issuer">
+          <option value="root">Root CA</option>
+          {{if .HasIntermediate}}<option value="intermediate">Intermediate CA</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label for="profile">Profile</label>
+        <select id="profile" name="profile">
+          <option value="server">Server (TLS server auth)</option>
+          <option value="client">Client (TLS client auth)</option>
+          <option value="both">Server + Client</option>
+        </select>
+      </div>
+      <div>
+        <label for="valid_days">Validity (days)</label>
+        <input id="valid_days" name="valid_days" type="number" value="365" min="1">
+      </div>
+    </div>
+
+    <details class="adv">
+      <summary>Security options (passphrase)</summary>
+      <div>
+        <label for="ca_passphrase">Issuing CA passphrase</label>
+        <input id="ca_passphrase" name="ca_passphrase" type="password" placeholder="Only if the CA key is encrypted" autocomplete="off">
+      </div>
+    </details>
+
+    <button class="btn" type="submit">Sign CSR</button>
+  </form>
+</div>
+{{if .Data}}
+<script>
+  var TT = {
+    {{range .Data}}"{{.Name}}": {days:{{.ValidDays}}, profile:"{{.Profile}}"},
+    {{end}}
+  };
+  (function () {
+    var sel = document.getElementById('template');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      var t = TT[this.value];
+      if (!t) return;
+      var days = document.getElementById('valid_days'); if (days) days.value = t.days;
+      var prof = document.getElementById('profile'); if (prof) prof.value = t.profile;
+    });
+  })();
+</script>
+{{end}}
+
+<div class="panel">
+  <h2 style="font-size:15px">Need a CSR to test with?</h2>
+  <p class="muted" style="font-size:13px;margin-bottom:0">Generate one with OpenSSL:</p>
+  <p><code>openssl req -newkey rsa:2048 -nodes -keyout test.key -out test.csr -subj "/CN=test.local"</code></p>
+</div>
+{{end}}
