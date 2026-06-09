@@ -1,6 +1,7 @@
 # NetAnchor — Podman / Docker Compose deployment.
 #
-#   podman compose up -d         # build + run in the background
+#   podman compose up -d         # pull + run in the background
+#   podman compose pull          # fetch a newer image
 #   podman compose logs -f       # follow logs
 #   podman compose down          # stop and remove (named volume is kept)
 #
@@ -9,16 +10,9 @@
 
 services:
   netanchor:
-    # Builds locally from the Containerfile. To use the published multi-arch
-    # image from GHCR instead, remove the `build:` block and set:
-    #   image: ghcr.io/fox27374/netanchor:1.1.0
-    # (Podman/Docker automatically pull the right arch: amd64, arm64, or armv7.)
-    build:
-      context: .
-      dockerfile: Containerfile
-      args:
-        VERSION: "1.1.0"
-    image: localhost/netanchor:1.1.0
+    # Pull the published multi-arch image from GHCR (amd64 / arm64 / armv7 are
+    # selected automatically). To build locally instead, see the Containerfile.
+    image: ghcr.io/fox27374/netanchor:1.1.0
     container_name: netanchor
     restart: unless-stopped
 
