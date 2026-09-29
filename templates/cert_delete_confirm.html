@@ -1,0 +1,21 @@
+{{define "content"}}
+{{$cert := .Data}}
+<div class="panel">
+  <h2 style="color:var(--err)">Delete Certificate</h2>
+
+  <div class="alert err">
+    Delete {{if $cert.CommonName}}{{$cert.CommonName}}{{else}}Certificate {{$cert.Serial}}{{end}}?
+  </div>
+
+  <table class="kv" style="margin:20px 0">
+    <tr><th>Common Name</th><td>{{if $cert.CommonName}}{{$cert.CommonName}}{{else}}<span class="muted">(none)</span>{{end}}</td></tr>
+    <tr><th>Serial</th><td class="mono">{{$cert.Serial}}</td></tr>
+    <tr><th>Kind</th><td><span class="pill">{{if eq $cert.Kind "issued"}}Issued{{else}}Signed CSR{{end}}</span></td></tr>
+  </table>
+
+  <form method="post" style="margin-top:24px">
+    <button class="btn" type="submit" style="background:var(--err)">Delete certificate</button>
+    <a class="btn secondary" href="/cert/{{$cert.Serial}}" style="margin-left:8px">Cancel</a>
+  </form>
+</div>
+{{end}}

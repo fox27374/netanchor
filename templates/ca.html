@@ -86,7 +86,7 @@
         <td><a href="/ca/view/{{.CAID}}">{{.CommonName}}</a>
           {{if .KeyEnc}}<span class="pill lock" title="private key is passphrase-protected">&#128274;</span>{{end}}
         </td>
-        <td class="muted">{{.Path}}</td>
+        <td class="muted">{{.SignedBy}}</td>
         <td>{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
         <td class="muted"><span class="pill">{{.AllowSubCALabel}}</span></td>
         <td class="links">
@@ -143,9 +143,10 @@
             <select id="i_parent" name="parent">
               {{range $ca.ParentOptions}}<option value="{{.CAID}}">{{.DisplayPath}}</option>{{end}}
             </select>
+            <p class="muted" style="font-size:13px">Only the root and intermediates created with "Allow sub-CAs" are listed.</p>
           </div>
         </div>
-        <label><input type="checkbox" name="allow_sub"> Allow sub-CAs (can sign intermediates; if unchecked, can only sign leaf certificates)</label>
+        <label><input type="checkbox" name="allow_sub" style="width:auto;margin-right:8px"> Allow sub-CAs (can sign intermediates; if unchecked, can only sign leaf certificates)</label>
         <label for="i_parentpass">Parent CA passphrase (if the parent key is protected)</label>
         <input id="i_parentpass" name="parent_passphrase" type="password" placeholder="Leave empty if parent key is unencrypted" autocomplete="off">
         <div class="row">

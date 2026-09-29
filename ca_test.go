@@ -2,6 +2,9 @@ package main
 
 import (
 	"crypto/x509"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -251,5 +254,263 @@ func TestLegacyIntermediateStillWorks(t *testing.T) {
 	}
 	if len(legacyCerts) < 2 {
 		t.Errorf("len(legacyCerts) = %d, want >= 2 (intermediate + root)", len(legacyCerts))
+	}
+}
+
+func TestDeleteCA(t *testing.T) {
+	// Test cascading CA deletion
+	dir := t.TempDir()
+	s, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+
+	// Create root CA
+	_, err = CreateCA(s, CAParams{
+		CommonName:   "Test Root CA",
+		Organization: "Test",
+		Algo:         algoECP256,
+		ValidDays:    3650,
+	})
+	if err != nil {
+		t.Fatalf("CreateCA (root): %v", err)
+	}
+
+	// Create intermediate A (allows sub-CAs)
+	aRec, err := CreateIntermediate(s, IntermediateParams{
+		CommonName:   "Intermediate A",
+		Organization: "Test",
+		Algo:         algoECP256,
+		ValidDays:    1825,
+		ParentID:     "root",
+		AllowSubCAs:  true,
+	})
+	if err != nil {
+		t.Fatalf("CreateIntermediate (A): %v", err)
+	}
+
+	// Create intermediate B under A
+	bRec, err := CreateIntermediate(s, IntermediateParams{
+		CommonName:   "Intermediate B",
+		Organization: "Test",
+		Algo:         algoECP256,
+		ValidDays:    1825,
+		ParentID:     aRec.Serial,
+		AllowSubCAs:  false,
+	})
+	if err != nil {
+		t.Fatalf("CreateIntermediate (B): %v", err)
+	}
+
+	// Issue a cert from A
+	leafARecords, err := IssueCert(s, IssueParams{
+		CommonName:   "test-a.example.com",
+		SANs:         []string{"test-a.example.com"},
+		Algo:         algoECP256,
+		ValidDays:    365,
+		Profile:      profileServer,
+		IssuerID:     aRec.Serial,
+		CAPassphrase: "",
+	})
+	if err != nil {
+		t.Fatalf("IssueCert (from A): %v", err)
+	}
+
+	// Issue a cert from B
+	leafBRec, err := IssueCert(s, IssueParams{
+		CommonName:   "test-b.example.com",
+		SANs:         []string{"test-b.example.com"},
+		Algo:         algoECP256,
+		ValidDays:    365,
+		Profile:      profileServer,
+		IssuerID:     bRec.Serial,
+		CAPassphrase: "",
+	})
+	if err != nil {
+		t.Fatalf("IssueCert (from B): %v", err)
+	}
+
+	// Issue a cert from root
+	leafRootRec, err := IssueCert(s, IssueParams{
+		CommonName:   "test-root.example.com",
+		SANs:         []string{"test-root.example.com"},
+		Algo:         algoECP256,
+		ValidDays:    365,
+		Profile:      profileServer,
+		IssuerID:     caRoot,
+		CAPassphrase: "",
+	})
+	if err != nil {
+		t.Fatalf("IssueCert (from root): %v", err)
+	}
+
+	// Verify all records exist before deletion
+	recs, _ := s.Records()
+	if len(recs) != 7 { // root, A, B, leafA, leafB, leafRoot, + root itself as CA
+		t.Logf("Initial records: %d (expected 7: root CA, A, B, leafA, leafB, leafRoot)", len(recs))
+	}
+
+	// Delete intermediate A (should cascade to B and both leaves)
+	if err := s.DeleteCA(aRec.Serial); err != nil {
+		t.Fatalf("DeleteCA(A): %v", err)
+	}
+
+	// Verify records after deletion
+	recs, _ = s.Records()
+	for _, r := range recs {
+		if r.Serial == aRec.Serial || r.Serial == bRec.Serial ||
+			r.Serial == leafARecords.Serial || r.Serial == leafBRec.Serial {
+			t.Errorf("Record still exists after deletion: %s (%s)", r.CommonName, r.Serial)
+		}
+	}
+
+	// Root and its leaf should still exist
+	rootFound := false
+	leafRootFound := false
+	for _, r := range recs {
+		if r.Kind == caRoot {
+			rootFound = true
+		}
+		if r.Serial == leafRootRec.Serial {
+			leafRootFound = true
+		}
+	}
+	if !rootFound {
+		t.Errorf("Root CA was deleted!")
+	}
+	if !leafRootFound {
+		t.Errorf("Leaf from root was deleted!")
+	}
+
+	// Verify trash directory was created and contains the deleted records
+	trashBaseDir := filepath.Join(dir, "trash")
+	trashDirs, err := filepath.Glob(filepath.Join(trashBaseDir, "*"))
+	if err != nil || len(trashDirs) == 0 {
+		t.Errorf("No trash directory created")
+	} else {
+		// Should have one trash timestamp directory
+		trashDir := trashDirs[0]
+		indexPath := filepath.Join(trashDir, "index.json")
+		data, err := os.ReadFile(indexPath)
+		if err != nil {
+			t.Errorf("Could not read trash index.json: %v", err)
+		}
+		var trashedRecs []CertRecord
+		if err := json.Unmarshal(data, &trashedRecs); err != nil {
+			t.Errorf("Could not parse trash index.json: %v", err)
+		}
+		if len(trashedRecs) != 4 {
+			t.Errorf("Trash index has %d records, want 4 (A, B, leafA, leafB)", len(trashedRecs))
+		}
+
+		// Verify CA files were moved
+		aPath := filepath.Join(trashDir, "cas", aRec.Serial)
+		if _, err := os.Stat(filepath.Join(aPath, "cert.pem")); err != nil {
+			t.Errorf("A's cert.pem not in trash: %v", err)
+		}
+
+		bPath := filepath.Join(trashDir, "cas", bRec.Serial)
+		if _, err := os.Stat(filepath.Join(bPath, "cert.pem")); err != nil {
+			t.Errorf("B's cert.pem not in trash: %v", err)
+		}
+
+		// Verify CA files were removed from original location
+		if s.HasCA(aRec.Serial) {
+			t.Errorf("A's cert still exists at original location")
+		}
+		if s.HasCA(bRec.Serial) {
+			t.Errorf("B's cert still exists at original location")
+		}
+	}
+}
+
+func TestDeleteCert(t *testing.T) {
+	// Test certificate deletion
+	dir := t.TempDir()
+	s, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+
+	// Create root CA
+	_, err = CreateCA(s, CAParams{
+		CommonName: "Test Root CA",
+		Algo:       algoECP256,
+		ValidDays:  3650,
+	})
+	if err != nil {
+		t.Fatalf("CreateCA: %v", err)
+	}
+
+	// Issue a cert
+	certRec, err := IssueCert(s, IssueParams{
+		CommonName:   "test.example.com",
+		SANs:         []string{"test.example.com"},
+		Algo:         algoECP256,
+		ValidDays:    365,
+		Profile:      profileServer,
+		IssuerID:     caRoot,
+		CAPassphrase: "",
+	})
+	if err != nil {
+		t.Fatalf("IssueCert: %v", err)
+	}
+
+	// Verify cert exists
+	_, ok := s.RecordBySerial(certRec.Serial)
+	if !ok {
+		t.Fatalf("Cert record not found before deletion")
+	}
+
+	// Delete the cert
+	if err := s.DeleteCert(certRec.Serial); err != nil {
+		t.Fatalf("DeleteCert: %v", err)
+	}
+
+	// Verify cert record is gone
+	_, ok = s.RecordBySerial(certRec.Serial)
+	if ok {
+		t.Errorf("Cert record still exists after deletion")
+	}
+
+	// Verify files are in trash
+	trashBaseDir := filepath.Join(dir, "trash")
+	trashDirs, err := filepath.Glob(filepath.Join(trashBaseDir, "*"))
+	if err != nil || len(trashDirs) == 0 {
+		t.Errorf("No trash directory created")
+	} else {
+		trashDir := trashDirs[0]
+		certPath := filepath.Join(trashDir, "certs", certRec.Serial+"-cert.pem")
+		if _, err := os.Stat(certPath); err != nil {
+			t.Errorf("Cert not in trash: %v", err)
+		}
+		keyPath := filepath.Join(trashDir, "certs", certRec.Serial+"-key.pem")
+		if _, err := os.Stat(keyPath); err != nil {
+			t.Errorf("Key not in trash: %v", err)
+		}
+	}
+}
+
+func TestDeleteRootCA(t *testing.T) {
+	// Test that root CA cannot be deleted
+	dir := t.TempDir()
+	s, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+
+	// Create root CA
+	_, err = CreateCA(s, CAParams{
+		CommonName: "Test Root CA",
+		Algo:       algoECP256,
+		ValidDays:  3650,
+	})
+	if err != nil {
+		t.Fatalf("CreateCA: %v", err)
+	}
+
+	// Try to delete root - should fail
+	if err := s.DeleteCA(caRoot); err == nil {
+		t.Errorf("DeleteCA(root) succeeded, want error")
 	}
 }

@@ -19,6 +19,10 @@ PKCS#12 encoder. Everything else uses the standard library:
 - **Intermediate CAs (any depth)** — create a hierarchy of intermediate CAs signed
   by the root or other intermediates (each can optionally allow sub-CAs). Choose
   any CA as the issuer. Entirely optional; issue directly from the root if you prefer.
+- **Delete** — admins can delete an intermediate CA (together with its sub-CAs and
+  every certificate they issued) or a single issued certificate. Nothing is erased:
+  files move to `<data>/trash/<timestamp>/` with an `index.json` of the removed
+  records, so a manual restore is possible. There is no revocation/CRL.
 - **Issue certificates** — generates a key pair and signs a leaf cert, with
   Subject Alternative Names (DNS + IP, auto-detected) and server/client/both profiles
 - **Sign CSRs** — paste PEM or upload a file; the request signature is verified

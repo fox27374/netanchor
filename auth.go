@@ -365,6 +365,14 @@ func requiresAdmin(method, path string) bool {
 	if strings.HasPrefix(path, "/download/") && strings.HasSuffix(path, "/p12") {
 		return true
 	}
+	// CA deletion
+	if strings.HasPrefix(path, "/ca/delete/") {
+		return true
+	}
+	// Certificate deletion
+	if strings.HasPrefix(path, "/cert/delete/") {
+		return true
+	}
 	switch path {
 	case "/issue", "/sign", "/users":
 		return true // both the form (GET) and the action (POST)

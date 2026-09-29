@@ -465,6 +465,143 @@ func (s *Store) DeleteTemplate(name string) error {
 	return s.saveTemplates(kept)
 }
 
+// caIDOf returns the CA id a CA record is stored under.
+func caIDOf(rec CertRecord) string {
+	switch {
+	case rec.Kind == caRoot:
+		return caRoot
+	case rec.CAID != "":
+		return rec.CAID
+	default:
+		return caIntermediate // legacy single intermediate
+	}
+}
+
+// CASubtree returns what deleting an intermediate CA removes: the CA itself
+// (first) plus all descendant CAs, and every certificate any of them issued.
+func (s *Store) CASubtree(id string) (cas, certs []CertRecord, err error) {
+	recs, err := s.Records()
+	if err != nil {
+		return nil, nil, err
+	}
+	return caSubtree(recs, id)
+}
+
+func caSubtree(recs []CertRecord, id string) (cas, certs []CertRecord, err error) {
+	if id == caRoot {
+		return nil, nil, errors.New("the root CA cannot be deleted")
+	}
+	inTree := map[string]bool{}
+	for _, r := range recs {
+		if r.Kind == caIntermediate && caIDOf(r) == id {
+			cas = append(cas, r)
+			inTree[id] = true
+		}
+	}
+	if len(cas) == 0 {
+		return nil, nil, fmt.Errorf("CA %s not found", id)
+	}
+	// Breadth-first over children; cas grows while we walk it.
+	for i := 0; i < len(cas); i++ {
+		parent := caIDOf(cas[i])
+		for _, r := range recs {
+			if r.Kind == caIntermediate && r.IssuerID == parent && !inTree[caIDOf(r)] {
+				inTree[caIDOf(r)] = true
+				cas = append(cas, r)
+			}
+		}
+	}
+	for _, r := range recs {
+		if (r.Kind == "issued" || r.Kind == "csr") && inTree[r.IssuerID] {
+			certs = append(certs, r)
+		}
+	}
+	return cas, certs, nil
+}
+
+// DeleteCA moves an intermediate CA, its descendant CAs and all certificates
+// they issued to the trash.
+func (s *Store) DeleteCA(id string) error {
+	if !s.ValidCAID(id) {
+		return fmt.Errorf("CA %s not found", id)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recs, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	cas, certs, err := caSubtree(recs, id)
+	if err != nil {
+		return err
+	}
+	return s.trash(recs, append(cas, certs...))
+}
+
+// DeleteCert moves a single issued certificate (and its key) to the trash.
+func (s *Store) DeleteCert(serial string) error {
+	if !ValidSerial(serial) {
+		return errors.New("invalid serial")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recs, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if r.Serial == serial && (r.Kind == "issued" || r.Kind == "csr") {
+			return s.trash(recs, []CertRecord{r})
+		}
+	}
+	return errors.New("certificate not found")
+}
+
+// trash moves the files of the removed records to <dir>/trash/<timestamp>/
+// (same layout, plus an index.json of the removed records) and drops them from
+// the index. Caller holds s.mu.
+func (s *Store) trash(recs, removed []CertRecord) error {
+	dst := filepath.Join(s.dir, "trash", time.Now().Format("20060102T150405.000000000"))
+	for _, sub := range []string{"cas", "certs"} {
+		if err := os.MkdirAll(filepath.Join(dst, sub), 0o700); err != nil {
+			return err
+		}
+	}
+	data, err := json.MarshalIndent(removed, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dst, "index.json"), data, 0o600); err != nil {
+		return err
+	}
+
+	gone := map[CertRecord]bool{}
+	for _, r := range removed {
+		gone[r] = true
+		if r.Kind == caIntermediate {
+			id := caIDOf(r)
+			if err := os.Rename(s.caDir(id), filepath.Join(dst, "cas", id)); err != nil {
+				return err
+			}
+			continue
+		}
+		for _, p := range []string{s.certPath(r.Serial), s.keyPath(r.Serial)} {
+			err := os.Rename(p, filepath.Join(dst, "certs", filepath.Base(p)))
+			if err != nil && !errors.Is(err, os.ErrNotExist) { // CSR certs have no key
+				return err
+			}
+		}
+	}
+
+	kept := recs[:0]
+	for _, r := range recs {
+		if !gone[r] {
+			kept = append(kept, r)
+		}
+	}
+	return s.saveIndex(kept)
+}
+
 func ensureTrailingNewline(b []byte) []byte {
 	if len(b) > 0 && b[len(b)-1] != '\n' {
 		return append(b, '\n')

@@ -25,7 +25,7 @@ type Server struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).ParseFS(
@@ -41,11 +41,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /ca/root", s.handleCreateRoot)
 	mux.HandleFunc("POST /ca/intermediate", s.handleCreateIntermediate)
 	mux.HandleFunc("GET /ca/view/{id}", s.handleCADetails)
+	mux.HandleFunc("GET /ca/delete/{id}", s.handleCADeleteForm)
+	mux.HandleFunc("POST /ca/delete/{id}", s.handleCADeleteConfirm)
 	mux.HandleFunc("GET /issue", s.handleIssueForm)
 	mux.HandleFunc("POST /issue", s.handleIssue)
 	mux.HandleFunc("GET /sign", s.handleSignForm)
 	mux.HandleFunc("POST /sign", s.handleSign)
 	mux.HandleFunc("GET /cert/{serial}", s.handleCertDetails)
+	mux.HandleFunc("GET /cert/delete/{serial}", s.handleCertDeleteForm)
+	mux.HandleFunc("POST /cert/delete/{serial}", s.handleCertDeleteConfirm)
 	mux.HandleFunc("GET /download/ca/{id}/{what}", s.handleDownloadCA)
 	mux.HandleFunc("GET /download/{serial}/{what}", s.handleDownload)
 	mux.HandleFunc("POST /download/{serial}/p12", s.handleExportP12)
@@ -209,7 +213,7 @@ type caViewData struct {
 type intermediateViewData struct {
 	CAID            string
 	CommonName      string
-	Path            string
+	SignedBy        string // parent CA path
 	NotAfter        time.Time
 	KeyEnc          bool
 	AllowSubCALabel string
@@ -224,6 +228,10 @@ func (s *Server) caData() caViewData {
 	cas, _ := s.store.CAs()
 	var data caViewData
 
+	paths := map[string]string{}
+	for _, ca := range cas {
+		paths[ca.ID] = ca.Path
+	}
 	for _, ca := range cas {
 		if ca.Record.Kind == caRoot {
 			data.Root = ca.Record
@@ -236,7 +244,7 @@ func (s *Server) caData() caViewData {
 			data.Intermediates = append(data.Intermediates, intermediateViewData{
 				CAID:            ca.ID,
 				CommonName:      ca.Record.CommonName,
-				Path:            ca.Path,
+				SignedBy:        paths[ca.ParentID],
 				NotAfter:        ca.Record.NotAfter,
 				KeyEnc:          ca.Record.KeyEnc,
 				AllowSubCALabel: label,
@@ -526,6 +534,100 @@ func kindTag(kind string) string {
 	default:
 		return kind
 	}
+}
+
+// --- CA deletion -----------------------------------------------------------
+
+// deleteCAData holds info for the CA delete confirmation page.
+type deleteCAData struct {
+	CAID       string
+	CommonName string
+	SubCAs     []CertRecord
+	SubCerts   []CertRecord
+}
+
+// renderCADelete shows the confirmation page listing everything that deleting
+// the CA removes. It 404s for the root and unknown CAs.
+func (s *Server) renderCADelete(w http.ResponseWriter, r *http.Request, id, errMsg string) {
+	if !s.store.ValidCAID(id) {
+		http.NotFound(w, r)
+		return
+	}
+	cas, certs, err := s.store.CASubtree(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	d := s.base(r, "Delete CA", "ca")
+	d.Error = errMsg
+	d.Data = deleteCAData{
+		CAID:       id,
+		CommonName: cas[0].CommonName,
+		SubCAs:     cas[1:],
+		SubCerts:   certs,
+	}
+	s.render(w, "ca_delete_confirm", d)
+}
+
+func (s *Server) handleCADeleteForm(w http.ResponseWriter, r *http.Request) {
+	s.renderCADelete(w, r, r.PathValue("id"), "")
+}
+
+func (s *Server) handleCADeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.store.ValidCAID(id) {
+		http.NotFound(w, r)
+		return
+	}
+	cas, _, err := s.store.CASubtree(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	cn := cas[0].CommonName
+	if strings.TrimSpace(r.FormValue("confirm_name")) != cn {
+		s.renderCADelete(w, r, id, "The name you typed does not match. Nothing was deleted.")
+		return
+	}
+	if err := s.store.DeleteCA(id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.message(w, r, "CA deleted", fmt.Sprintf("%q, its sub-CAs and all certificates they issued were moved to the trash folder.", cn))
+}
+
+// --- certificate deletion --------------------------------------------------
+
+func (s *Server) handleCertDeleteForm(w http.ResponseWriter, r *http.Request) {
+	serial := r.PathValue("serial")
+	if !ValidSerial(serial) {
+		http.Error(w, "bad serial", http.StatusBadRequest)
+		return
+	}
+	rec, ok := s.store.RecordBySerial(serial)
+	if !ok || (rec.Kind != "issued" && rec.Kind != "csr") {
+		http.NotFound(w, r)
+		return
+	}
+
+	d := s.base(r, "Delete Certificate - Confirm", "")
+	d.Data = rec
+	s.render(w, "cert_delete_confirm", d)
+}
+
+func (s *Server) handleCertDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	serial := r.PathValue("serial")
+	if !ValidSerial(serial) {
+		http.Error(w, "bad serial", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.DeleteCert(serial); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // --- downloads -----------------------------------------------------------

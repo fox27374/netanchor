@@ -76,6 +76,18 @@
     {{end}}
   </div>
 
+  {{if and $d.IsCAView (ne $d.CAID "root") $.IsAdmin}}
+  <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--line)">
+    <a class="btn" href="/ca/delete/{{$d.CAID}}" style="background:var(--err)">Delete CA</a>
+  </div>
+  {{end}}
+
+  {{if and (not $d.IsCAView) $.IsAdmin}}
+  <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--line)">
+    <a class="btn" href="/cert/delete/{{$d.Serial}}" style="background:var(--err)">Delete Certificate</a>
+  </div>
+  {{end}}
+
   <div class="links" style="margin-top:20px">
     {{if $d.IsCAView}}<a href="/ca">Back to CA</a>{{else}}<a href="/">Back to dashboard</a>{{end}}
   </div>
@@ -83,17 +95,17 @@
 
 {{/* Inline PEM, ready to copy & paste. */}}
 <div class="panel">
-  <p class="cardtitle">Certificate (PEM)</p>
-  <div class="pemwrap">
+  <div class="pemhead">
+    <p class="cardtitle">Certificate (PEM)</p>
     <button class="copybtn" type="button" onclick="copyFrom('certpem', this)">Copy</button>
-    <textarea id="certpem" class="pembox" rows="12" readonly>{{$d.CertPEM}}</textarea>
   </div>
+  <textarea id="certpem" class="pembox" rows="12" readonly>{{$d.CertPEM}}</textarea>
   {{if $d.KeyPEM}}
-  <p class="cardtitle" style="margin-top:20px">Private key (PEM)</p>
-  <div class="pemwrap">
+  <div class="pemhead" style="margin-top:20px">
+    <p class="cardtitle">Private key (PEM)</p>
     <button class="copybtn" type="button" onclick="copyFrom('keypem', this)">Copy</button>
-    <textarea id="keypem" class="pembox" rows="9" readonly>{{$d.KeyPEM}}</textarea>
   </div>
+  <textarea id="keypem" class="pembox" rows="9" readonly>{{$d.KeyPEM}}</textarea>
   {{end}}
 </div>
 
