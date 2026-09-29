@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
@@ -101,6 +102,9 @@ type pageData struct {
 	Message         string
 	Data            any
 
+	// For issue/sign forms: list of CAs that can issue certs (by CAID and DisplayPath)
+	IssueCAs []caOptionData
+
 	// Identity / access.
 	AuthEnabled   bool
 	Authenticated bool
@@ -116,7 +120,7 @@ func (s *Server) base(r *http.Request, title, active string) pageData {
 		Title:           title,
 		Active:          active,
 		HasCA:           s.store.HasCA(caRoot),
-		HasIntermediate: s.store.HasCA(caIntermediate),
+		HasIntermediate: s.hasIntermediate(),
 		AuthEnabled:     s.auth.enabled,
 		Version:         version,
 	}
@@ -143,6 +147,35 @@ func (s *Server) isAdmin(r *http.Request) bool {
 	return ok && u.Role == RoleAdmin
 }
 
+// hasIntermediate reports whether at least one intermediate CA exists (legacy or serial-based).
+func (s *Server) hasIntermediate() bool {
+	recs, err := s.store.Records()
+	if err != nil {
+		return false
+	}
+	for _, rec := range recs {
+		if rec.Kind == caIntermediate {
+			return true
+		}
+	}
+	return false
+}
+
+// getIssueCAs returns all CAs that can issue certificates (all CAs).
+func (s *Server) getIssueCAs() []caOptionData {
+	cas, _ := s.store.CAs()
+	var result []caOptionData
+	for _, ca := range cas {
+		if ca.Record.Kind == caRoot || ca.Record.Kind == caIntermediate {
+			result = append(result, caOptionData{
+				CAID:        ca.ID,
+				DisplayPath: ca.Path,
+			})
+		}
+	}
+	return result
+}
+
 // --- dashboard -----------------------------------------------------------
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -151,34 +184,75 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	paths := map[string]string{}
+	cas, _ := s.store.CAs()
+	for _, ca := range cas {
+		paths[ca.ID] = ca.Path
+	}
 	d := s.base(r, "Dashboard", "dashboard")
-	d.Data = recs
+	d.Data = struct {
+		Recs  []CertRecord
+		Paths map[string]string // CA id -> "Root › A › B"
+	}{recs, paths}
 	s.render(w, "dashboard", d)
 }
 
 // --- CA management -------------------------------------------------------
 
 type caViewData struct {
-	Root                  *CertRecord
-	RootEncrypted         bool
-	Intermediate          *CertRecord
-	IntermediateEncrypted bool
+	Root          *CertRecord
+	RootEncrypted bool
+	Intermediates []intermediateViewData
+	ParentOptions []caOptionData
+}
+
+type intermediateViewData struct {
+	CAID            string
+	CommonName      string
+	Path            string
+	NotAfter        time.Time
+	KeyEnc          bool
+	AllowSubCALabel string
+}
+
+type caOptionData struct {
+	CAID        string
+	DisplayPath string
 }
 
 func (s *Server) caData() caViewData {
-	recs, _ := s.store.Records()
+	cas, _ := s.store.CAs()
 	var data caViewData
-	for i := range recs {
-		rec := recs[i]
-		switch rec.Kind {
-		case caRoot:
-			data.Root = &rec
-		case caIntermediate:
-			data.Intermediate = &rec
+
+	for _, ca := range cas {
+		if ca.Record.Kind == caRoot {
+			data.Root = ca.Record
+			data.RootEncrypted = s.store.CAKeyEncrypted(caRoot)
+		} else if ca.Record.Kind == caIntermediate {
+			label := "No"
+			if ca.Record.AllowSubCA {
+				label = "Yes"
+			}
+			data.Intermediates = append(data.Intermediates, intermediateViewData{
+				CAID:            ca.ID,
+				CommonName:      ca.Record.CommonName,
+				Path:            ca.Path,
+				NotAfter:        ca.Record.NotAfter,
+				KeyEnc:          ca.Record.KeyEnc,
+				AllowSubCALabel: label,
+			})
 		}
 	}
-	data.RootEncrypted = s.store.CAKeyEncrypted(caRoot)
-	data.IntermediateEncrypted = s.store.CAKeyEncrypted(caIntermediate)
+
+	for _, ca := range cas {
+		if ca.CanSignSubCA {
+			data.ParentOptions = append(data.ParentOptions, caOptionData{
+				CAID:        ca.ID,
+				DisplayPath: ca.Path,
+			})
+		}
+	}
+
 	return data
 }
 
@@ -223,14 +297,25 @@ func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request
 		s.caError(w, r, "Passphrases do not match.")
 		return
 	}
+	parentID := strings.TrimSpace(r.FormValue("parent"))
+	if parentID == "" {
+		parentID = caRoot
+	}
+	// Validate parent exists
+	if !s.store.ValidCAID(parentID) {
+		s.caError(w, r, fmt.Sprintf("Parent CA %s does not exist.", parentID))
+		return
+	}
 	p := IntermediateParams{
-		CommonName:     strings.TrimSpace(r.FormValue("common_name")),
-		Organization:   strings.TrimSpace(r.FormValue("organization")),
-		Country:        strings.TrimSpace(r.FormValue("country")),
-		Algo:           keyAlgo(r.FormValue("algo")),
-		ValidDays:      atoiDefault(r.FormValue("valid_days"), 1825),
-		RootPassphrase: r.FormValue("root_passphrase"),
-		Passphrase:     pass,
+		CommonName:       strings.TrimSpace(r.FormValue("common_name")),
+		Organization:     strings.TrimSpace(r.FormValue("organization")),
+		Country:          strings.TrimSpace(r.FormValue("country")),
+		Algo:             keyAlgo(r.FormValue("algo")),
+		ValidDays:        atoiDefault(r.FormValue("valid_days"), 1825),
+		ParentID:         parentID,
+		ParentPassphrase: r.FormValue("parent_passphrase"),
+		Passphrase:       pass,
+		AllowSubCAs:      r.FormValue("allow_sub") == "on",
 	}
 	if _, err := CreateIntermediate(s.store, p); err != nil {
 		s.caError(w, r, err.Error())
@@ -360,7 +445,7 @@ type detailsPage struct {
 
 func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 	serial := r.PathValue("serial")
-	if !validSerial(serial) {
+	if !ValidSerial(serial) {
 		http.Error(w, "bad serial", http.StatusBadRequest)
 		return
 	}
@@ -375,12 +460,14 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, _ := s.store.RecordBySerial(serial)
+	// CanChain is true if issued by any CA that is not root (i.e., any intermediate)
+	canChain := rec.IssuerID != "" && rec.IssuerID != caRoot
 	dp := detailsPage{
 		Info:     describeCert(cert),
 		KindTag:  kindTag(rec.Kind),
 		Serial:   serial,
 		HasKey:   rec.HasKey,
-		CanChain: rec.IssuerID == caIntermediate,
+		CanChain: canChain,
 		CertPEM:  string(pemBytes),
 	}
 	if rec.HasKey && s.isAdmin(r) {
@@ -395,7 +482,7 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCADetails(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if id != caRoot && id != caIntermediate {
+	if !s.store.ValidCAID(id) {
 		http.NotFound(w, r)
 		return
 	}
@@ -409,12 +496,16 @@ func (s *Server) handleCADetails(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	kindStr := caRoot
+	if id != caRoot {
+		kindStr = caIntermediate
+	}
 	dp := detailsPage{
 		Info:     describeCert(cert),
-		KindTag:  kindTag(id),
+		KindTag:  kindTag(kindStr),
 		IsCAView: true,
 		CAID:     id,
-		CanChain: id == caIntermediate,
+		CanChain: id != caRoot,
 		CertPEM:  string(pemBytes),
 	}
 	d := s.base(r, "CA Details", "ca")
@@ -441,7 +532,7 @@ func kindTag(kind string) string {
 
 func (s *Server) handleDownloadCA(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if id != caRoot && id != caIntermediate {
+	if !s.store.ValidCAID(id) {
 		http.Error(w, "unknown CA", http.StatusNotFound)
 		return
 	}
@@ -496,7 +587,7 @@ func (s *Server) handleDownloadCA(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	serial := r.PathValue("serial")
-	if !validSerial(serial) {
+	if !ValidSerial(serial) {
 		http.Error(w, "bad serial", http.StatusBadRequest)
 		return
 	}
@@ -573,7 +664,7 @@ func (s *Server) leafChainCerts(serial string) ([]*x509.Certificate, error) {
 // handleExportP12 builds a password-protected PKCS#12 bundle (cert + key + chain).
 func (s *Server) handleExportP12(w http.ResponseWriter, r *http.Request) {
 	serial := r.PathValue("serial")
-	if !validSerial(serial) {
+	if !ValidSerial(serial) {
 		http.Error(w, "bad serial", http.StatusBadRequest)
 		return
 	}
@@ -822,11 +913,16 @@ func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/templates", http.StatusSeeOther)
 }
 
-// formBase is like base but also loads templates for the issue/sign forms.
+// formBase is like base but also loads templates and CA options for the issue/sign forms.
 func (s *Server) formBase(r *http.Request, title, active string) pageData {
 	d := s.base(r, title, active)
 	tmpls, _ := s.store.LoadTemplates()
 	d.Data = tmpls
+
+	// Build list of CAs that can issue certs (all CAs except root if intermediates exist)
+	// Actually, all CAs can issue: root, and all intermediates
+	d.IssueCAs = s.getIssueCAs()
+
 	return d
 }
 
@@ -874,17 +970,4 @@ func splitLines(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool {
 		return r == '\n' || r == '\r' || r == ',' || r == ' ' || r == '\t'
 	})
-}
-
-// validSerial guards against path traversal: serials are always lowercase hex.
-func validSerial(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
 }

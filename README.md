@@ -16,9 +16,9 @@ PKCS#12 encoder. Everything else uses the standard library:
 
 - **Root CA** — create a self-signed root (ECDSA P-256/P-384 or RSA 2048/4096,
   configurable subject & validity)
-- **Optional intermediate CA** — create one intermediate signed by the root, then
-  choose root or intermediate as the issuer. Entirely optional; issue directly
-  from the root if you prefer.
+- **Intermediate CAs (any depth)** — create a hierarchy of intermediate CAs signed
+  by the root or other intermediates (each can optionally allow sub-CAs). Choose
+  any CA as the issuer. Entirely optional; issue directly from the root if you prefer.
 - **Issue certificates** — generates a key pair and signs a leaf cert, with
   Subject Alternative Names (DNS + IP, auto-detected) and server/client/both profiles
 - **Sign CSRs** — paste PEM or upload a file; the request signature is verified

@@ -26,8 +26,7 @@
       <div>
         <label for="issuer">Issuing CA</label>
         <select id="issuer" name="issuer">
-          <option value="root">Root CA</option>
-          {{if .HasIntermediate}}<option value="intermediate">Intermediate CA</option>{{end}}
+          {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}">{{.DisplayPath}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
         </select>
       </div>
       <div>

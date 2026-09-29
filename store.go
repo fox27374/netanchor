@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,8 +23,10 @@ const (
 type CertRecord struct {
 	Serial     string    `json:"serial"`
 	CommonName string    `json:"common_name"`
-	Kind       string    `json:"kind"`      // "root", "intermediate", "issued", "csr"
-	IssuerID   string    `json:"issuer_id"` // which CA signed it: "root" or "intermediate"
+	Kind       string    `json:"kind"`            // "root", "intermediate", "issued", "csr"
+	IssuerID   string    `json:"issuer_id"`       // which CA signed it: "root" or "intermediate" or other CA id
+	CAID       string    `json:"ca_id,omitempty"` // CA id for intermediates (serial hex for new, empty for legacy)
+	AllowSubCA bool      `json:"allow_sub_ca"`    // for intermediates: if true, can sign other CAs; if false, leaf-only
 	NotBefore  time.Time `json:"not_before"`
 	NotAfter   time.Time `json:"not_after"`
 	HasKey     bool      `json:"has_key"`
@@ -98,22 +101,43 @@ func (s *Store) CAKeyEncrypted(id string) bool {
 
 // IssuerChainPEM returns the certificate chain for a signing CA: the CA's own
 // certificate followed by any ancestors, so the result is a complete path up to
-// the root.
+// the root. It walks the CA tree via IssuerID, guarding against loops.
 func (s *Store) IssuerChainPEM(issuerID string) ([]byte, error) {
-	switch issuerID {
-	case caIntermediate:
-		ic, err := s.LoadCACertPEM(caIntermediate)
-		if err != nil {
-			return nil, err
+	var chain [][]byte
+	currentID := issuerID
+	seen := make(map[string]bool)
+
+	for {
+		if seen[currentID] {
+			return nil, fmt.Errorf("CA chain loop detected at %s", currentID)
 		}
-		rc, err := s.LoadCACertPEM(caRoot)
+		seen[currentID] = true
+
+		certPEM, err := s.LoadCACertPEM(currentID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("loading CA %s: %w", currentID, err)
 		}
-		return append(ensureTrailingNewline(ic), rc...), nil
-	default:
-		return s.LoadCACertPEM(caRoot)
+		chain = append(chain, certPEM)
+
+		if currentID == caRoot {
+			break
+		}
+
+		rec := s.findCARecord(currentID)
+		if rec == nil {
+			return nil, fmt.Errorf("CA %s has no record", currentID)
+		}
+		if rec.IssuerID == "" {
+			return nil, fmt.Errorf("CA %s has no issuer", currentID)
+		}
+		currentID = rec.IssuerID
 	}
+
+	var result []byte
+	for _, c := range chain {
+		result = append(result, ensureTrailingNewline(c)...)
+	}
+	return result, nil
 }
 
 // SaveCert writes a leaf certificate (and optionally its private key).
@@ -157,8 +181,9 @@ func (s *Store) saveIndex(recs []CertRecord) error {
 	return os.WriteFile(s.indexPath(), data, 0o600)
 }
 
-// AddRecord appends a record, replacing any existing record for the same CA id
-// (so re-creating the root or intermediate updates rather than duplicates).
+// AddRecord appends a record, replacing any existing record for the root CA
+// (so re-creating the root updates rather than duplicates). All other records
+// (intermediates and leaf certs) are appended (no dedup).
 func (s *Store) AddRecord(rec CertRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -166,10 +191,10 @@ func (s *Store) AddRecord(rec CertRecord) error {
 	if err != nil {
 		return err
 	}
-	if rec.Kind == caRoot || rec.Kind == caIntermediate {
+	if rec.Kind == caRoot {
 		filtered := recs[:0]
 		for _, r := range recs {
-			if r.Kind != rec.Kind {
+			if r.Kind != caRoot {
 				filtered = append(filtered, r)
 			}
 		}
@@ -205,6 +230,139 @@ func (s *Store) RecordBySerial(serial string) (CertRecord, bool) {
 		}
 	}
 	return CertRecord{}, false
+}
+
+// findCARecord looks up a CA record by CA id (or Kind for legacy).
+// It returns a pointer to the record found, or nil.
+func (s *Store) findCARecord(caID string) *CertRecord {
+	recs, err := s.Records()
+	if err != nil {
+		return nil
+	}
+	for i := range recs {
+		rec := &recs[i]
+		// Match by CAID (for serial-based intermediates) or legacy intermediate
+		if rec.Kind == caIntermediate {
+			if rec.CAID == caID {
+				return rec
+			}
+			// Legacy: empty CAID + ID "intermediate" matches caID "intermediate"
+			if rec.CAID == "" && caID == caIntermediate && rec.IssuerID == caRoot {
+				return rec
+			}
+		} else if rec.Kind == caRoot && caID == caRoot {
+			return rec
+		}
+	}
+	return nil
+}
+
+// CAInfo describes a CA with its hierarchical path.
+type CAInfo struct {
+	ID           string // "root", "intermediate" (legacy), or serial hex
+	Record       *CertRecord
+	ParentID     string // issuer ID
+	Path         string // e.g. "Root › A › B"
+	CanSignSubCA bool   // whether this CA can sign other CAs
+}
+
+// CAs returns info for all CAs in tree order (sorted by path, root first).
+func (s *Store) CAs() ([]CAInfo, error) {
+	recs, err := s.Records()
+	if err != nil {
+		return nil, err
+	}
+
+	idToRec := make(map[string]*CertRecord)
+	for i := range recs {
+		rec := &recs[i]
+		if rec.Kind == caRoot {
+			idToRec[caRoot] = rec
+		} else if rec.Kind == caIntermediate {
+			caID := rec.CAID
+			if caID == "" {
+				caID = caIntermediate
+			}
+			idToRec[caID] = rec
+		}
+	}
+
+	var result []CAInfo
+	for i := range recs {
+		rec := &recs[i]
+		if rec.Kind != caRoot && rec.Kind != caIntermediate {
+			continue
+		}
+
+		var caID string
+		if rec.Kind == caRoot {
+			caID = caRoot
+		} else {
+			caID = rec.CAID
+			if caID == "" {
+				caID = caIntermediate
+			}
+		}
+
+		var pathParts []string
+		walkID := caID
+		seen := make(map[string]bool)
+		for {
+			if seen[walkID] {
+				break
+			}
+			seen[walkID] = true
+
+			walkedRec := idToRec[walkID]
+			if walkedRec == nil {
+				break
+			}
+			pathParts = append([]string{walkedRec.CommonName}, pathParts...)
+
+			if walkID == caRoot {
+				break
+			}
+			walkID = walkedRec.IssuerID
+		}
+
+		path := strings.Join(pathParts, " › ")
+		canSignSubCA := rec.Kind == caRoot || rec.AllowSubCA
+
+		result = append(result, CAInfo{
+			ID:           caID,
+			Record:       rec,
+			ParentID:     rec.IssuerID,
+			Path:         path,
+			CanSignSubCA: canSignSubCA,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result, nil
+}
+
+// ValidSerial guards against path traversal: serials are always lowercase hex.
+func ValidSerial(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidCAID reports whether a CA id is valid and exists.
+func (s *Store) ValidCAID(id string) bool {
+	if id == caRoot || id == caIntermediate {
+		return s.HasCA(id)
+	}
+	if ValidSerial(id) {
+		return s.HasCA(id)
+	}
+	return false
 }
 
 // --- certificate templates -----------------------------------------------

@@ -148,31 +148,44 @@ func CreateCA(s *Store, p CAParams) (CertRecord, error) {
 	return rec, s.AddRecord(rec)
 }
 
-// IntermediateParams holds the inputs for creating an optional intermediate CA
-// signed by the root.
+// IntermediateParams holds the inputs for creating an intermediate CA.
 type IntermediateParams struct {
-	CommonName     string
-	Organization   string
-	Country        string
-	Algo           keyAlgo
-	ValidDays      int
-	RootPassphrase string // unlocks the root key if it is encrypted
-	Passphrase     string // optional; encrypts the new intermediate key at rest
+	CommonName       string
+	Organization     string
+	Country          string
+	Algo             keyAlgo
+	ValidDays        int
+	ParentID         string // which CA signed it: "root" or other intermediate id
+	ParentPassphrase string // unlocks the parent key if it is encrypted
+	Passphrase       string // optional; encrypts the new intermediate key at rest
+	AllowSubCAs      bool   // if true, MaxPathLen = -1 (unconstrained); if false, MaxPathLen = 0
 }
 
-// CreateIntermediate creates an intermediate CA signed by the root. The
-// intermediate is path-length 0, so it may only issue leaf certificates.
+// CreateIntermediate creates an intermediate CA signed by a parent (root or another intermediate).
+// The intermediate can optionally allow sub-CAs (AllowSubCAs=false => MaxPathLen=0 => leaf-only;
+// AllowSubCAs=true => MaxPathLen=-1 => unconstrained).
 func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 	if p.CommonName == "" {
 		return CertRecord{}, errors.New("common name is required")
 	}
-	if !s.HasCA(caRoot) {
-		return CertRecord{}, errors.New("create the root CA first")
+
+	// Normalize parent ID: accept any valid CA id, fall back to root
+	parentID := normalizeIssuer(s, p.ParentID)
+
+	// Verify parent exists and can have sub-CAs
+	if !s.HasCA(parentID) {
+		return CertRecord{}, fmt.Errorf("parent CA %s does not exist", parentID)
 	}
-	rootCert, rootKey, err := loadCA(s, caRoot, p.RootPassphrase)
+	parentCert, parentKey, err := loadCA(s, parentID, p.ParentPassphrase)
 	if err != nil {
 		return CertRecord{}, err
 	}
+
+	// Check if parent allows sub-CAs: if parentCert.MaxPathLenZero=true, parent cannot have children
+	if parentCert.MaxPathLenZero && parentID != caRoot {
+		return CertRecord{}, fmt.Errorf("parent CA %s does not allow sub-CAs (path length is 0)", parentID)
+	}
+	// Root always allows sub-CAs
 
 	key, err := generateKey(p.Algo)
 	if err != nil {
@@ -185,9 +198,10 @@ func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 
 	now := time.Now()
 	notAfter := now.AddDate(0, 0, p.ValidDays)
-	if notAfter.After(rootCert.NotAfter) {
-		notAfter = rootCert.NotAfter // never outlive the root
+	if notAfter.After(parentCert.NotAfter) {
+		notAfter = parentCert.NotAfter // never outlive the parent
 	}
+
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               subject(p.CommonName, p.Organization, p.Country),
@@ -195,11 +209,12 @@ func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 		NotAfter:              notAfter,
 		IsCA:                  true,
 		BasicConstraintsValid: true,
-		MaxPathLenZero:        true, // may only issue leaf certs
+		MaxPathLen:            map[bool]int{true: -1, false: 0}[p.AllowSubCAs],
+		MaxPathLenZero:        !p.AllowSubCAs,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, rootCert, key.Public(), rootKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parentCert, key.Public(), parentKey)
 	if err != nil {
 		return CertRecord{}, err
 	}
@@ -207,15 +222,20 @@ func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 	if err != nil {
 		return CertRecord{}, err
 	}
-	if err := s.SaveCA(caIntermediate, encodeCertPEM(der), keyPEM); err != nil {
+
+	// Use serial hex as CA ID for new intermediates
+	caID := serialString(serial)
+	if err := s.SaveCA(caID, encodeCertPEM(der), keyPEM); err != nil {
 		return CertRecord{}, err
 	}
 
 	rec := CertRecord{
-		Serial:     serialString(serial),
+		Serial:     caID,
 		CommonName: p.CommonName,
 		Kind:       caIntermediate,
-		IssuerID:   caRoot,
+		IssuerID:   parentID,
+		CAID:       caID,
+		AllowSubCA: p.AllowSubCAs,
 		NotBefore:  tmpl.NotBefore,
 		NotAfter:   tmpl.NotAfter,
 		HasKey:     true,
@@ -410,12 +430,13 @@ func SignCSR(s *Store, p SignCSRParams) (CertRecord, error) {
 	return rec, s.AddRecord(rec)
 }
 
-// normalizeIssuer falls back to the root unless a usable intermediate is asked for.
+// normalizeIssuer validates a CA id (root, legacy intermediate, or serial hex).
+// Falls back to root if the id is not valid.
 func normalizeIssuer(s *Store, id string) string {
-	if id == caIntermediate && s.HasCA(caIntermediate) {
-		return caIntermediate
+	if id == "" || !s.ValidCAID(id) {
+		return caRoot
 	}
-	return caRoot
+	return id
 }
 
 func subject(cn, org, country string) pkix.Name {

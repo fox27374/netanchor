@@ -26,7 +26,7 @@
 
 <div class="panel">
   <h2>Certificates</h2>
-  {{$recs := .Data}}
+  {{$recs := .Data.Recs}}{{$paths := .Data.Paths}}
   {{if $recs}}
   <table>
     <thead>
@@ -37,7 +37,7 @@
       <tr>
         <td>
           {{if eq .Kind "root"}}<a href="/ca/view/root">{{if .CommonName}}{{.CommonName}}{{else}}(none){{end}}</a>
-          {{else if eq .Kind "intermediate"}}<a href="/ca/view/intermediate">{{.CommonName}}</a>
+          {{else if eq .Kind "intermediate"}}<a href="/ca/view/{{if .CAID}}{{.CAID}}{{else}}intermediate{{end}}">{{.CommonName}}</a>
           {{else}}<a href="/cert/{{.Serial}}">{{if .CommonName}}{{.CommonName}}{{else}}(none){{end}}</a>{{end}}
           {{if .KeyEnc}}<span class="pill lock" title="private key is passphrase-protected">&#128274;</span>{{end}}
         </td>
@@ -48,19 +48,19 @@
           {{if eq .Kind "csr"}}<span class="tag csr">Signed CSR</span>{{end}}
         </td>
         <td class="muted" style="font-size:13px">
-          {{if eq .Kind "root"}}self{{else if eq .Kind "intermediate"}}root{{else}}{{.IssuerID}}{{end}}
+          {{if eq .Kind "root"}}self{{else}}{{or (index $paths .IssuerID) .IssuerID}}{{end}}
         </td>
         <td class="mono">{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
         <td class="links">
           {{if eq .Kind "root"}}
             <a href="/download/ca/root/cert">cert</a>
           {{else if eq .Kind "intermediate"}}
-            <a href="/download/ca/intermediate/cert">cert</a>
-            <a href="/download/ca/intermediate/chain">chain</a>
+            <a href="/download/ca/{{if .CAID}}{{.CAID}}{{else}}intermediate{{end}}/cert">cert</a>
+            <a href="/download/ca/{{if .CAID}}{{.CAID}}{{else}}intermediate{{end}}/chain">chain</a>
           {{else}}
             <a href="/download/{{.Serial}}/cert">cert</a>
             {{if and .HasKey $.IsAdmin}}<a href="/download/{{.Serial}}/key">key</a>{{end}}
-            {{if eq .IssuerID "intermediate"}}<a href="/download/{{.Serial}}/chain">chain</a>{{end}}
+            {{if ne .IssuerID "root"}}<a href="/download/{{.Serial}}/chain">chain</a>{{end}}
           {{end}}
         </td>
       </tr>
