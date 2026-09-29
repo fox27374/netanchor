@@ -5,7 +5,7 @@
 # Run the compiler natively on the build host (BUILDPLATFORM) and cross-compile
 # to the requested target, so multi-arch builds (amd64 / arm64 / armv7) are fast
 # and don't need QEMU for the Go build itself.
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+FROM --platform=$BUILDPLATFORM docker.io/golang:1.24-alpine AS build
 WORKDIR /src
 
 ARG VERSION=dev
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 \
       -ldflags "-s -w -X main.version=${VERSION}" -o /netanchor .
 
 # ---- runtime stage ------------------------------------------------------
-FROM alpine:3.20
+FROM docker.io/alpine:3.20
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="NetAnchor" \
