@@ -9,6 +9,17 @@
     {{if $i.Expired}}<span class="pill bad">Expired</span>{{else}}<span class="pill lock">{{$i.DaysLeft}} days left</span>{{end}}
   </div>
 
+  {{/* Chain schematic, root first; every step except the current one links to its details. */}}
+  {{if $d.Chain}}
+  <div class="chain">
+    {{range $n, $s := $d.Chain}}
+    <div class="chainstep" style="margin-left:{{$n}}em">
+      {{if $s.Href}}<a href="{{$s.Href}}">{{$s.Name}}</a>{{else}}<span class="current">{{if $s.Name}}{{$s.Name}}{{else}}(this certificate){{end}}</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
   {{/* The two fields that matter most: Common Name and the SANs. */}}
   <div class="ident">
     <div class="identrow">

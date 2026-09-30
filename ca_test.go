@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -512,5 +513,44 @@ func TestDeleteRootCA(t *testing.T) {
 	// Try to delete root - should fail
 	if err := s.DeleteCA(caRoot); err == nil {
 		t.Errorf("DeleteCA(root) succeeded, want error")
+	}
+}
+
+func TestCAPath(t *testing.T) {
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	if _, err := CreateCA(s, CAParams{CommonName: "Root", Algo: algoECP256, ValidDays: 3650}); err != nil {
+		t.Fatalf("CreateCA: %v", err)
+	}
+	a, err := CreateIntermediate(s, IntermediateParams{CommonName: "Int A", Algo: algoECP256, ValidDays: 1825, ParentID: "root", AllowSubCAs: true})
+	if err != nil {
+		t.Fatalf("CreateIntermediate (A): %v", err)
+	}
+	b, err := CreateIntermediate(s, IntermediateParams{CommonName: "Int B", Algo: algoECP256, ValidDays: 1825, ParentID: a.Serial})
+	if err != nil {
+		t.Fatalf("CreateIntermediate (B): %v", err)
+	}
+
+	for _, tc := range []struct {
+		id   string
+		want []string
+	}{
+		{"root", []string{"Root"}},
+		{a.Serial, []string{"Root", "Int A"}},
+		{b.Serial, []string{"Root", "Int A", "Int B"}},
+	} {
+		path, err := s.CAPath(tc.id)
+		if err != nil {
+			t.Fatalf("CAPath(%s): %v", tc.id, err)
+		}
+		var got []string
+		for _, r := range path {
+			got = append(got, r.CommonName)
+		}
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("CAPath(%s) = %v, want %v", tc.id, got, tc.want)
+		}
 	}
 }

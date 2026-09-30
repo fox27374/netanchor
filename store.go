@@ -140,6 +140,28 @@ func (s *Store) IssuerChainPEM(issuerID string) ([]byte, error) {
 	return result, nil
 }
 
+// CAPath returns the CA records from the root down to caID, walking the CA
+// tree via IssuerID and guarding against loops.
+func (s *Store) CAPath(caID string) ([]CertRecord, error) {
+	var path []CertRecord
+	seen := make(map[string]bool)
+	for id := caID; ; {
+		if seen[id] {
+			return nil, fmt.Errorf("CA chain loop detected at %s", id)
+		}
+		seen[id] = true
+		rec := s.findCARecord(id)
+		if rec == nil {
+			return nil, fmt.Errorf("CA %s has no record", id)
+		}
+		path = append([]CertRecord{*rec}, path...)
+		if id == caRoot {
+			return path, nil
+		}
+		id = rec.IssuerID
+	}
+}
+
 // SaveCert writes a leaf certificate (and optionally its private key).
 func (s *Store) SaveCert(serial string, certPEM, keyPEM []byte) error {
 	if err := os.WriteFile(s.certPath(serial), certPEM, 0o600); err != nil {

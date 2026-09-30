@@ -58,6 +58,13 @@
   .identrow { margin-bottom:14px; }
   .identrow:last-child { margin-bottom:0; }
   .identval { font-size:16px; margin-top:5px; }
+  .chain { margin:0 0 22px; }
+  .chainstep { display:flex; align-items:center; margin-top:6px; font-size:14px; }
+  .chainstep + .chainstep::before { content:"└"; color:var(--line); margin-right:8px; }
+  .chainstep a, .chainstep .current { padding:4px 12px; border:1px solid var(--line); border-radius:8px; background:#0b1220; }
+  .chainstep a { color:var(--accent); text-decoration:none; }
+  .chainstep a:hover { border-color:var(--accent); }
+  .chainstep .current { border-color:var(--accent); font-weight:600; }
   .pill.san { background:#0891b233; color:#67e8f9; font-size:12px; margin:3px 6px 3px 0; }
   .userbox { margin-left:auto; display:flex; align-items:center; gap:14px; }
   .who { font-size:13px; color:var(--muted); }

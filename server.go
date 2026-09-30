@@ -449,6 +449,28 @@ type detailsPage struct {
 	CanChain bool
 	CertPEM  string // inline, copy-paste
 	KeyPEM   string // inline, admin only
+	Chain    []chainStep
+}
+
+// chainStep is one box in the chain schematic, root first. Href is empty for
+// the certificate being viewed.
+type chainStep struct {
+	Name string
+	Href string
+}
+
+// caChain returns the chain steps from the root down to caID, or nil if the
+// path cannot be resolved.
+func (s *Server) caChain(caID string) []chainStep {
+	path, err := s.store.CAPath(caID)
+	if err != nil {
+		return nil
+	}
+	steps := make([]chainStep, len(path))
+	for i, rec := range path {
+		steps[i] = chainStep{Name: rec.CommonName, Href: "/ca/view/" + caIDOf(rec)}
+	}
+	return steps
 }
 
 func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
@@ -477,6 +499,11 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 		HasKey:   rec.HasKey,
 		CanChain: canChain,
 		CertPEM:  string(pemBytes),
+	}
+	if rec.IssuerID != "" {
+		if chain := s.caChain(rec.IssuerID); chain != nil {
+			dp.Chain = append(chain, chainStep{Name: dp.Info.CommonName})
+		}
 	}
 	if rec.HasKey && s.isAdmin(r) {
 		if keyPEM, err := s.store.LoadKeyPEM(serial); err == nil {
@@ -515,6 +542,10 @@ func (s *Server) handleCADetails(w http.ResponseWriter, r *http.Request) {
 		CAID:     id,
 		CanChain: id != caRoot,
 		CertPEM:  string(pemBytes),
+		Chain:    s.caChain(id),
+	}
+	if n := len(dp.Chain); n > 0 {
+		dp.Chain[n-1].Href = ""
 	}
 	d := s.base(r, "CA Details", "ca")
 	d.Data = dp
