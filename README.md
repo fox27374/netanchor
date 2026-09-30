@@ -107,9 +107,9 @@ Raspberry Pi 3/4/5 and ARM servers), and **`linux/arm/v7`** (32-bit Pi / older
 ARM). Podman or Docker automatically pull the variant matching your machine:
 
 ```sh
-podman pull ghcr.io/fox27374/netanchor:1.3.1
+podman pull ghcr.io/fox27374/netanchor:1.3.2
 podman run -d --name netanchor -p 8443:8443 -v netanchor-data:/data \
-  ghcr.io/fox27374/netanchor:1.3.1
+  ghcr.io/fox27374/netanchor:1.3.2
 ```
 
 On a Raspberry Pi this is the only command you need — no building required.
@@ -118,12 +118,12 @@ On a Raspberry Pi this is the only command you need — no building required.
 Push a version tag and it builds all three arches and pushes the manifest:
 
 ```sh
-git tag v1.3.1
-git push origin v1.3.1
+git tag v1.3.2
+git push origin v1.3.2
 ```
 
 The workflow authenticates with the built-in `GITHUB_TOKEN` (no secrets to
-configure) and publishes `:1.3.1`, `:1.3`, `:1`, and `:latest`. After the first
+configure) and publishes `:1.3.2`, `:1.3`, `:1`, and `:latest`. After the first
 publish, make the package public under the repo's *Packages* settings if you
 want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 (fast); only the tiny user-creation step in the runtime stage runs under QEMU.
@@ -132,11 +132,11 @@ want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 Podman:
 
 ```sh
-podman manifest create netanchor:1.3.1
+podman manifest create netanchor:1.3.2
 podman build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  --manifest netanchor:1.3.1 --build-arg VERSION=1.3.1 -f Containerfile .
-podman manifest push --all netanchor:1.3.1 \
-  docker://ghcr.io/fox27374/netanchor:1.3.1
+  --manifest netanchor:1.3.2 --build-arg VERSION=1.3.2 -f Containerfile .
+podman manifest push --all netanchor:1.3.2 \
+  docker://ghcr.io/fox27374/netanchor:1.3.2
 ```
 
 ### Why a volume (and not a database)?
