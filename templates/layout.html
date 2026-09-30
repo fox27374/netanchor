@@ -58,13 +58,17 @@
   .identrow { margin-bottom:14px; }
   .identrow:last-child { margin-bottom:0; }
   .identval { font-size:16px; margin-top:5px; }
-  .chain { margin:0 0 22px; }
-  .chainstep { display:flex; align-items:center; margin-top:6px; font-size:14px; }
-  .chainstep + .chainstep::before { content:"└"; color:var(--line); margin-right:8px; }
-  .chainstep a, .chainstep .current { padding:4px 12px; border:1px solid var(--line); border-radius:8px; background:#0b1220; }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:6px 0; margin:0 0 22px; }
+  .chainstep { display:flex; align-items:center; font-size:14px; }
+  .chainstep + .chainstep::before { content:"→"; color:var(--muted); margin:0 10px; }
+  .chainstep a, .chainstep .current { display:flex; align-items:center; gap:6px; padding:4px 12px; border:1px solid var(--line); border-radius:8px; background:#0b1220; }
   .chainstep a { color:var(--accent); text-decoration:none; }
   .chainstep a:hover { border-color:var(--accent); }
   .chainstep .current { border-color:var(--accent); font-weight:600; }
+  .chainmark { font-weight:700; }
+  .chainstep.ok .chainmark { color:var(--ok); }
+  .chainstep.bad .chainmark { color:var(--err); }
+  .chainstep.bad a, .chainstep.bad .current { border-color:var(--err); }
   .pill.san { background:#0891b233; color:#67e8f9; font-size:12px; margin:3px 6px 3px 0; }
   .userbox { margin-left:auto; display:flex; align-items:center; gap:14px; }
   .who { font-size:13px; color:var(--muted); }
@@ -79,8 +83,29 @@
   .pembox { width:100%; background:#0b1220; border:1px solid var(--line); border-radius:8px; color:#cbd5e1; font-family: ui-monospace, Menlo, monospace; font-size:12px; padding:12px; white-space:pre; overflow:auto; resize:vertical; }
   .copybtn { background:var(--panel); color:var(--accent); border:1px solid var(--accent); border-radius:6px; font-size:12px; padding:4px 10px; cursor:pointer; }
   .copybtn:hover { filter:brightness(1.1); }
-  .fmtrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  .fmtrow .lbl { color:var(--muted); font-size:12px; min-width:90px; }
+  .dlhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .fmtrow { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .fmtrow .lbl { color:var(--muted); font-size:12px; min-width:110px; display:flex; align-items:center; }
+  .fmtrow.sub { margin-top:8px; }
+  .fmtrow .sublbl { margin:0; font-size:12px; }
+  .fmtrow.sub input { width:220px; padding:6px 10px; font-size:13px; }
+  .seg { display:inline-flex; }
+  .seg .btn { margin:0; padding:6px 14px; font-size:13px; border-radius:0; }
+  .seg .btn + .btn { margin-left:-1px; }
+  .seg .btn:first-child { border-radius:8px 0 0 8px; }
+  .seg .btn:last-child { border-radius:0 8px 8px 0; }
+  .seg .btn:only-child { border-radius:8px; }
+  .seg .btn:hover { background:#38bdf81a; filter:none; position:relative; }
+  .switch { display:flex; align-items:center; gap:10px; margin:0; font-size:13px; color:var(--muted); cursor:pointer; }
+  .switch input { position:absolute; opacity:0; width:0; height:0; }
+  .switch .track { position:relative; width:34px; height:18px; border-radius:999px; background:var(--line); transition:background .15s; }
+  .switch .track::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#e2e8f0; transition:transform .15s; }
+  .switch input:checked + .track { background:var(--accent); }
+  .switch input:checked + .track::after { transform:translateX(16px); }
+  .switch input:focus-visible + .track { outline:2px solid var(--accent); outline-offset:2px; }
+  .info { position:relative; display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; margin-left:4px; border:1px solid var(--muted); border-radius:50%; font-size:10px; font-weight:700; cursor:help; }
+  .info .tip { display:none; position:absolute; left:0; top:calc(100% + 6px); z-index:10; width:280px; padding:10px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; color:#e2e8f0; font-size:13px; font-weight:400; line-height:1.4; box-shadow:0 6px 20px #0008; }
+  .info:hover .tip, .info:focus .tip { display:block; }
 </style>
 </head>
 <body>

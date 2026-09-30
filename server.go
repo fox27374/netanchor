@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/x509"
 	"embed"
+	"encoding/pem"
 	"fmt"
 	"html/template"
 	"log"
@@ -455,8 +457,26 @@ type detailsPage struct {
 // chainStep is one box in the chain schematic, root first. Href is empty for
 // the certificate being viewed.
 type chainStep struct {
-	Name string
-	Href string
+	Name  string
+	Href  string
+	Valid bool   // inside its validity window right now
+	Note  string // tooltip: why it is valid or not
+}
+
+// newChainStep builds a step and checks its validity window against now.
+func newChainStep(name, href string, notBefore, notAfter time.Time) chainStep {
+	st := chainStep{Name: name, Href: href}
+	now := time.Now()
+	switch {
+	case now.Before(notBefore):
+		st.Note = "not valid before " + notBefore.Format("2006-01-02")
+	case now.After(notAfter):
+		st.Note = "expired " + notAfter.Format("2006-01-02")
+	default:
+		st.Valid = true
+		st.Note = "valid until " + notAfter.Format("2006-01-02")
+	}
+	return st
 }
 
 // caChain returns the chain steps from the root down to caID, or nil if the
@@ -468,7 +488,7 @@ func (s *Server) caChain(caID string) []chainStep {
 	}
 	steps := make([]chainStep, len(path))
 	for i, rec := range path {
-		steps[i] = chainStep{Name: rec.CommonName, Href: "/ca/view/" + caIDOf(rec)}
+		steps[i] = newChainStep(rec.CommonName, "/ca/view/"+caIDOf(rec), rec.NotBefore, rec.NotAfter)
 	}
 	return steps
 }
@@ -502,7 +522,7 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	if rec.IssuerID != "" {
 		if chain := s.caChain(rec.IssuerID); chain != nil {
-			dp.Chain = append(chain, chainStep{Name: dp.Info.CommonName})
+			dp.Chain = append(chain, newChainStep(dp.Info.CommonName, "", cert.NotBefore, cert.NotAfter))
 		}
 	}
 	if rec.HasKey && s.isAdmin(r) {
@@ -690,9 +710,21 @@ func (s *Server) handleDownloadCA(w http.ResponseWriter, r *http.Request) {
 		}
 		serveBytes(w, "application/pkix-cert", id+"-cert.der", cert.Raw)
 	case "p7b":
-		pemBytes, err := s.store.IssuerChainPEM(id)
+		pemBytes, err := s.store.LoadCACertPEM(id)
 		if err != nil {
 			http.Error(w, "CA not found", http.StatusNotFound)
+			return
+		}
+		cert, err := parseCertPEM(pemBytes)
+		if err != nil {
+			http.Error(w, "bad CA certificate", http.StatusInternalServerError)
+			return
+		}
+		servePKCS7(w, id+"-cert.p7b", []*x509.Certificate{cert})
+	case "chain":
+		pemBytes, err := s.store.IssuerChainPEM(id)
+		if err != nil {
+			http.Error(w, "chain not available", http.StatusNotFound)
 			return
 		}
 		certs, err := parseCertsPEM(pemBytes)
@@ -700,19 +732,7 @@ func (s *Server) handleDownloadCA(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad CA certificate", http.StatusInternalServerError)
 			return
 		}
-		p7, err := encodePKCS7Certs(certs)
-		if err != nil {
-			http.Error(w, "could not build PKCS#7", http.StatusInternalServerError)
-			return
-		}
-		serveBytes(w, "application/x-pkcs7-certificates", id+"-cert.p7b", p7)
-	case "chain":
-		pemBytes, err := s.store.IssuerChainPEM(id)
-		if err != nil {
-			http.Error(w, "chain not available", http.StatusNotFound)
-			return
-		}
-		servePEM(w, id+"-chain.pem", pemBytes)
+		serveChain(w, r, id, certs)
 	default:
 		http.Error(w, "unknown download", http.StatusBadRequest)
 	}
@@ -740,26 +760,35 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		serveBytes(w, "application/pkix-cert", serial+"-cert.der", cert.Raw)
 	case "p7b":
-		certs, err := s.leafChainCerts(serial)
+		cert, err := s.loadCert(serial)
 		if err != nil {
 			http.Error(w, "certificate not found", http.StatusNotFound)
 			return
 		}
-		p7, err := encodePKCS7Certs(certs)
-		if err != nil {
-			http.Error(w, "could not build PKCS#7", http.StatusInternalServerError)
-			return
-		}
-		serveBytes(w, "application/x-pkcs7-certificates", serial+"-cert.p7b", p7)
+		servePKCS7(w, serial+"-cert.p7b", []*x509.Certificate{cert})
 	case "key":
 		pemBytes, err := s.store.LoadKeyPEM(serial)
 		if err != nil {
 			http.Error(w, "private key not available", http.StatusNotFound)
 			return
 		}
-		servePEM(w, serial+"-key.pem", pemBytes)
+		if r.URL.Query().Get("format") != "der" {
+			servePEM(w, serial+"-key.pem", pemBytes)
+			return
+		}
+		block, _ := pem.Decode(pemBytes)
+		if block == nil {
+			http.Error(w, "could not read private key", http.StatusInternalServerError)
+			return
+		}
+		serveBytes(w, "application/octet-stream", serial+"-key.der", block.Bytes)
 	case "chain":
-		s.serveLeafChain(w, serial)
+		certs, err := s.leafChainCerts(serial)
+		if err != nil {
+			http.Error(w, "certificate not found", http.StatusNotFound)
+			return
+		}
+		serveChain(w, r, serial, certs)
 	default:
 		http.Error(w, "unknown download", http.StatusBadRequest)
 	}
@@ -822,6 +851,9 @@ func (s *Server) handleExportP12(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "certificate not found", http.StatusNotFound)
 		return
 	}
+	if r.FormValue("noroot") != "" {
+		chain = dropRoot(chain)
+	}
 	leaf := chain[0]
 	caCerts := chain[1:]
 
@@ -833,19 +865,43 @@ func (s *Server) handleExportP12(w http.ResponseWriter, r *http.Request) {
 	serveBytes(w, "application/x-pkcs12", serial+".p12", p12)
 }
 
-func (s *Server) serveLeafChain(w http.ResponseWriter, serial string) {
-	leaf, err := s.store.LoadCertPEM(serial)
-	if err != nil {
-		http.Error(w, "certificate not found", http.StatusNotFound)
+// serveChain sends certs (leaf first, root last) as PEM, or as PKCS#7 with
+// ?format=p7b. With ?noroot=1 a trailing self-signed root is left out.
+func serveChain(w http.ResponseWriter, r *http.Request, name string, certs []*x509.Certificate) {
+	q := r.URL.Query()
+	if q.Get("noroot") != "" {
+		if trimmed := dropRoot(certs); len(trimmed) < len(certs) {
+			certs = trimmed
+			name += "-noroot"
+		}
+	}
+	if q.Get("format") == "p7b" {
+		servePKCS7(w, name+"-chain.p7b", certs)
 		return
 	}
-	rec, _ := s.store.RecordBySerial(serial)
-	caChain, err := s.store.IssuerChainPEM(rec.IssuerID)
+	var out []byte
+	for _, c := range certs {
+		out = append(out, encodeCertPEM(c.Raw)...)
+	}
+	servePEM(w, name+"-chain.pem", out)
+}
+
+// dropRoot returns certs (leaf first, root last) without a trailing
+// self-signed root. A lone certificate is never dropped.
+func dropRoot(certs []*x509.Certificate) []*x509.Certificate {
+	if n := len(certs); n > 1 && bytes.Equal(certs[n-1].RawIssuer, certs[n-1].RawSubject) {
+		return certs[:n-1]
+	}
+	return certs
+}
+
+func servePKCS7(w http.ResponseWriter, filename string, certs []*x509.Certificate) {
+	p7, err := encodePKCS7Certs(certs)
 	if err != nil {
-		http.Error(w, "chain not available", http.StatusNotFound)
+		http.Error(w, "could not build PKCS#7", http.StatusInternalServerError)
 		return
 	}
-	servePEM(w, serial+"-chain.pem", append(ensureTrailingNewline(leaf), caChain...))
+	serveBytes(w, "application/x-pkcs7-certificates", filename, p7)
 }
 
 // --- auth & account handlers ---------------------------------------------

@@ -47,7 +47,8 @@ PKCS#12 encoder. Everything else uses the standard library:
   fingerprints. The cert (and, for admins, the private key) are shown inline as
   **copy-paste PEM**.
 - **Multiple export formats** — download a certificate as **PEM**, **DER**, or
-  **PKCS#7** (`.p7b`, full chain), and export the cert + key + chain as a
+  **PKCS#7** (`.p7b`), the chain as **PEM** or **PKCS#7** (optionally without
+  the root), the private key as **PEM** or **DER**, and export the cert + key + chain as a
   password-protected **PKCS#12** (`.p12` / `.pfx`) for browsers, Windows, macOS
   Keychain, or Java keystores.
 - **Dashboard** with one-click downloads: cert, key (admin only), and full

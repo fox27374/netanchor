@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNestedIntermediateChain(t *testing.T) {
@@ -552,5 +553,56 @@ func TestCAPath(t *testing.T) {
 		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 			t.Errorf("CAPath(%s) = %v, want %v", tc.id, got, tc.want)
 		}
+	}
+}
+
+func TestNewChainStepValidity(t *testing.T) {
+	now := time.Now()
+	day := 24 * time.Hour
+	for _, tc := range []struct {
+		name    string
+		nb, na  time.Time
+		valid   bool
+		notePfx string
+	}{
+		{"current", now.Add(-day), now.Add(day), true, "valid until"},
+		{"expired", now.Add(-2 * day), now.Add(-day), false, "expired"},
+		{"future", now.Add(day), now.Add(2 * day), false, "not valid before"},
+	} {
+		st := newChainStep("x", "", tc.nb, tc.na)
+		if st.Valid != tc.valid || !strings.HasPrefix(st.Note, tc.notePfx) {
+			t.Errorf("%s: got Valid=%v Note=%q", tc.name, st.Valid, st.Note)
+		}
+	}
+}
+
+func TestDropRoot(t *testing.T) {
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	if _, err := CreateCA(s, CAParams{CommonName: "Root", Algo: algoECP256, ValidDays: 3650}); err != nil {
+		t.Fatalf("CreateCA: %v", err)
+	}
+	a, err := CreateIntermediate(s, IntermediateParams{CommonName: "Int A", Algo: algoECP256, ValidDays: 1825, ParentID: "root"})
+	if err != nil {
+		t.Fatalf("CreateIntermediate: %v", err)
+	}
+	chainPEM, err := s.IssuerChainPEM(a.Serial)
+	if err != nil {
+		t.Fatalf("IssuerChainPEM: %v", err)
+	}
+	chain, err := parseCertsPEM(chainPEM) // Int A, Root
+	if err != nil {
+		t.Fatalf("parseCertsPEM: %v", err)
+	}
+	if got := dropRoot(chain); len(got) != 1 || got[0].Subject.CommonName != "Int A" {
+		t.Errorf("dropRoot(Int A, Root) kept %d certs", len(got))
+	}
+	if got := dropRoot(chain[1:]); len(got) != 1 {
+		t.Errorf("dropRoot must keep a lone root")
+	}
+	if got := dropRoot(chain[:1]); len(got) != 1 {
+		t.Errorf("dropRoot must keep a lone non-root")
 	}
 }

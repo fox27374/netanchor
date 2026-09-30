@@ -12,9 +12,11 @@
   {{/* Chain schematic, root first; every step except the current one links to its details. */}}
   {{if $d.Chain}}
   <div class="chain">
-    {{range $n, $s := $d.Chain}}
-    <div class="chainstep" style="margin-left:{{$n}}em">
-      {{if $s.Href}}<a href="{{$s.Href}}">{{$s.Name}}</a>{{else}}<span class="current">{{if $s.Name}}{{$s.Name}}{{else}}(this certificate){{end}}</span>{{end}}
+    {{range $d.Chain}}
+    <div class="chainstep {{if .Valid}}ok{{else}}bad{{end}}" title="{{.Note}}">
+      {{if .Href}}<a href="{{.Href}}">{{else}}<span class="current">{{end}}
+        <span class="chainmark">{{if .Valid}}&#10003;{{else}}&#10007;{{end}}</span>{{if .Name}}{{.Name}}{{else}}(this certificate){{end}}
+      {{if .Href}}</a>{{else}}</span>{{end}}
     </div>
     {{end}}
   </div>
@@ -54,39 +56,6 @@
     <tr><th>SHA-1 fingerprint</th><td class="wrap">{{$i.SHA1}}</td></tr>
   </table>
 
-  <div style="margin-top:22px">
-    <p class="cardtitle">Download</p>
-    {{if $d.IsCAView}}
-      <div class="fmtrow">
-        <span class="lbl">Certificate</span>
-        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/cert">PEM</a>
-        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/der">DER</a>
-        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/p7b">PKCS#7</a>
-      </div>
-      {{if $d.CanChain}}
-      <div class="fmtrow" style="margin-top:8px">
-        <span class="lbl">Chain</span>
-        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/chain">PEM</a>
-        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/p7b">PKCS#7</a>
-      </div>
-      {{end}}
-    {{else}}
-      <div class="fmtrow">
-        <span class="lbl">Certificate</span>
-        <a class="btn secondary" href="/download/{{$d.Serial}}/cert">PEM</a>
-        <a class="btn secondary" href="/download/{{$d.Serial}}/der">DER</a>
-        <a class="btn secondary" href="/download/{{$d.Serial}}/p7b">PKCS#7</a>
-        {{if $d.CanChain}}<a class="btn secondary" href="/download/{{$d.Serial}}/chain">Chain (PEM)</a>{{end}}
-      </div>
-      {{if and $d.HasKey $.IsAdmin}}
-      <div class="fmtrow" style="margin-top:8px">
-        <span class="lbl">Private key</span>
-        <a class="btn secondary" href="/download/{{$d.Serial}}/key">PEM</a>
-      </div>
-      {{end}}
-    {{end}}
-  </div>
-
   {{if and $d.IsCAView (ne $d.CAID "root") $.IsAdmin}}
   <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--line)">
     <a class="btn" href="/ca/delete/{{$d.CAID}}" style="background:var(--err)">Delete CA</a>
@@ -120,15 +89,69 @@
   {{end}}
 </div>
 
-{{if and (not $d.IsCAView) $d.HasKey $.IsAdmin}}
 <div class="panel">
-  <p class="cardtitle">Export PKCS#12 (.p12 / .pfx)</p>
-  <p class="muted">Bundles the certificate, its private key, and the issuing chain into a single password-protected file for import into browsers, Windows, macOS Keychain, or Java keystores.</p>
-  <form method="post" action="/download/{{$d.Serial}}/p12">
-    <label for="p12pw">Export password</label>
-    <input id="p12pw" name="password" type="password" autocomplete="new-password" placeholder="Protects the .p12 file (leave empty for none)">
-    <button class="btn" type="submit">Download .p12</button>
-  </form>
+  <div class="dlhead">
+    <p class="cardtitle" style="margin:0">Download</p>
+    {{if or (not $d.IsCAView) $d.CanChain}}
+    <label class="switch">Include root CA
+      <input type="checkbox" checked autocomplete="off" onchange="document.querySelectorAll('input[name=noroot]').forEach(function(i){ i.disabled = this.checked }, this)">
+      <span class="track"></span>
+    </label>
+    {{end}}
+  </div>
+  {{if $d.IsCAView}}
+    <div class="fmtrow">
+      <span class="lbl">Certificate</span>
+      <span class="seg">
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/cert">PEM</a>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/der">DER</a>
+        <a class="btn secondary" href="/download/ca/{{$d.CAID}}/p7b">PKCS#7</a>
+      </span>
+    </div>
+    {{if $d.CanChain}}{{template "chainrow" printf "/download/ca/%s/chain" $d.CAID}}{{end}}
+  {{else}}
+    <div class="fmtrow">
+      <span class="lbl">Certificate</span>
+      <span class="seg">
+        <a class="btn secondary" href="/download/{{$d.Serial}}/cert">PEM</a>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/der">DER</a>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/p7b">PKCS#7</a>
+      </span>
+    </div>
+    {{template "chainrow" printf "/download/%s/chain" $d.Serial}}
+    {{if and $d.HasKey $.IsAdmin}}
+    <div class="fmtrow">
+      <span class="lbl">Private key</span>
+      <span class="seg">
+        <a class="btn secondary" href="/download/{{$d.Serial}}/key">PEM</a>
+        <a class="btn secondary" href="/download/{{$d.Serial}}/key?format=der">DER</a>
+      </span>
+    </div>
+    <form method="post" action="/download/{{$d.Serial}}/p12">
+      <input type="hidden" name="noroot" value="1" disabled>
+      <div class="fmtrow">
+        <span class="lbl">Combined <span class="info" tabindex="0" aria-label="About the combined download">?<span class="tip" role="tooltip">PKCS#12 bundles the certificate, its private key and the issuing chain into one password-protected file for browsers, Windows, macOS Keychain or Java keystores.</span></span></span>
+        <span class="seg"><button class="btn secondary" type="submit">PKCS#12</button></span>
+      </div>
+      <div class="fmtrow sub">
+        <span class="lbl"></span>
+        <label for="p12pw" class="sublbl">Password</label>
+        <input id="p12pw" name="password" type="password" autocomplete="new-password" placeholder="optional">
+      </div>
+    </form>
+    {{end}}
+  {{end}}
 </div>
 {{end}}
+
+{{/* Chain download row; the checkbox and format travel as query parameters. */}}
+{{define "chainrow"}}
+<form class="fmtrow" method="get" action="{{.}}">
+  <input type="hidden" name="noroot" value="1" disabled>
+  <span class="lbl">Chain</span>
+  <span class="seg">
+    <button class="btn secondary" type="submit" name="format" value="pem">PEM</button>
+    <button class="btn secondary" type="submit" name="format" value="p7b">PKCS#7</button>
+  </span>
+</form>
 {{end}}
