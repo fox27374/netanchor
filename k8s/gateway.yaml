@@ -1,0 +1,29 @@
+# Edit gatewayClassName, the hostname, and provide the TLS Secret named below
+# (type kubernetes.io/tls, e.g. issued by cert-manager). If your cluster
+# already has a shared Gateway, delete this file and point the parentRefs in
+# httproute.yaml at it instead.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: netanchor
+spec:
+  gatewayClassName: change-me
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: netanchor.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: netanchor-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: netanchor.example.com
+      allowedRoutes:
+        namespaces:
+          from: Same

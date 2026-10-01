@@ -1,0 +1,11 @@
+# CA(s), issued certs, session-signing key and users.json all live here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netanchor-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: <your class>   # omit to use the cluster default
