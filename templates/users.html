@@ -5,17 +5,17 @@
   <p class="cardtitle">Accounts</p>
   {{$users := .Data}}
   {{if $users}}
-  <table>
+  <table class="stack">
     <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
     <tbody>
       {{range $users}}
       <tr>
         <td>{{.Username}}{{if eq .Username $.Username}} <span class="muted">(you)</span>{{end}}</td>
-        <td>
+        <td data-label="Role">
           {{if eq (printf "%s" .Role) "admin"}}<span class="rolebadge admin">admin</span>{{else}}<span class="rolebadge">viewer</span>{{end}}
         </td>
-        <td class="mono">{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
-        <td style="text-align:right">
+        <td class="mono" data-label="Created">{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
+        <td class="links" style="text-align:right">
           <form method="post" action="/users/delete" onsubmit="return confirm('Delete user {{.Username}}?')" style="display:inline">
             <input type="hidden" name="username" value="{{.Username}}">
             <button class="linklike" type="submit">Delete</button>

@@ -6,17 +6,17 @@
   <p class="cardtitle">Templates</p>
   {{$tmpls := .Data}}
   {{if $tmpls}}
-  <table>
+  <table class="stack">
     <thead><tr><th>Name</th><th>Profile</th><th>Key</th><th>Validity</th><th>Organization</th><th></th></tr></thead>
     <tbody>
       {{range $tmpls}}
       <tr>
         <td><a href="/templates/edit/{{.Name}}">{{.Name}}</a>{{if .Description}}<div class="muted" style="font-size:12px">{{.Description}}</div>{{end}}</td>
-        <td>{{.Profile}}</td>
-        <td class="mono">{{.Algo}}</td>
-        <td class="mono">{{.ValidDays}}d</td>
-        <td>{{if .Organization}}{{.Organization}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td style="text-align:right">
+        <td data-label="Profile">{{.Profile}}</td>
+        <td class="mono" data-label="Key">{{.Algo}}</td>
+        <td class="mono" data-label="Validity">{{.ValidDays}}d</td>
+        <td data-label="Organization">{{if .Organization}}{{.Organization}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="links" style="text-align:right">
           <a href="/templates/edit/{{.Name}}">Edit</a>
           <form method="post" action="/templates/delete" onsubmit="return confirm('Delete template {{.Name}}?')" style="display:inline;margin-left:10px">
             <input type="hidden" name="name" value="{{.Name}}">

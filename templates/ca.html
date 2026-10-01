@@ -76,7 +76,7 @@
 {{if $ca.Intermediates}}
 <div class="panel">
   <p class="cardtitle">Intermediate CAs</p>
-  <table>
+  <table class="stack">
     <thead>
       <tr><th>Common Name</th><th>Signed by</th><th>Expires</th><th>Allow sub-CAs</th><th>Downloads</th></tr>
     </thead>
@@ -86,10 +86,10 @@
         <td><a href="/ca/view/{{.CAID}}">{{.CommonName}}</a>
           {{if .KeyEnc}}<span class="pill lock" title="private key is passphrase-protected">&#128274;</span>{{end}}
         </td>
-        <td class="muted">{{.SignedBy}}</td>
-        <td>{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
-        <td class="muted"><span class="pill">{{.AllowSubCALabel}}</span></td>
-        <td class="links">
+        <td class="muted" data-label="Signed by">{{.SignedBy}}</td>
+        <td data-label="Expires">{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
+        <td class="muted" data-label="Allow sub-CAs"><span class="pill">{{.AllowSubCALabel}}</span></td>
+        <td class="links" data-label="Downloads">
           <a href="/download/ca/{{.CAID}}/cert">cert</a>
           <a href="/download/ca/{{.CAID}}/chain">chain</a>
         </td>
