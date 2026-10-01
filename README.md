@@ -248,3 +248,4 @@ a passphrase; there is no recovery if you forget it.
 | `server.go`    | HTTP routes, handlers, template rendering                    |
 | `templates/`   | Embedded HTML UI                                             |
 | `Containerfile`| Multi-stage build → static binary on Alpine, non-root       |
+| `k8s/`         | Kustomize base: Deployment, PVC, Service, Gateway API Gateway + HTTPRoute |
