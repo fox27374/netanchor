@@ -178,6 +178,32 @@ separate DB service.
 
   A `GET /healthz` endpoint returns `200 ok` and bypasses authentication.
 
+## Run on Kubernetes
+
+Manifests live in [`k8s/`](k8s/) as a kustomize base: namespace, 1Gi PVC, a
+single-replica Deployment (`Recreate`, since the file store is single-writer),
+Service, and a Gateway API `Gateway` + `HTTPRoute` (plus an HTTP→HTTPS
+redirect). The Gateway terminates TLS, so the pod runs with
+`NETANCHOR_TLS=off`.
+
+Before applying, edit:
+
+- `gateway.yaml`: `gatewayClassName` (currently `change-me`) and the hostname,
+  and create the TLS Secret `netanchor-tls` (`kubernetes.io/tls`, e.g. via
+  cert-manager). If you already have a shared Gateway, delete `gateway.yaml`
+  and point the `parentRefs` in `httproute.yaml` at it.
+- `httproute.yaml`: the hostname (matches the Gateway's).
+- `pvc.yaml`: optionally a `storageClassName`.
+
+```sh
+kubectl apply -k k8s/
+kubectl -n netanchor get gateway,httproute,pods
+```
+
+The image tag is pinned in `k8s/kustomization.yaml`. With TLS off the app does
+not mark its session cookies `Secure`; clients still connect over HTTPS through
+the Gateway.
+
 ## Quick test with OpenSSL
 
 Generate a CSR to sign from the "Sign CSR" page:
@@ -222,3 +248,4 @@ a passphrase; there is no recovery if you forget it.
 | `server.go`    | HTTP routes, handlers, template rendering                    |
 | `templates/`   | Embedded HTML UI                                             |
 | `Containerfile`| Multi-stage build → static binary on Alpine, non-root       |
+| `k8s/`         | Kustomize base: Deployment, PVC, Service, Gateway API Gateway + HTTPRoute |
