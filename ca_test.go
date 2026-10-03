@@ -606,3 +606,53 @@ func TestDropRoot(t *testing.T) {
 		t.Errorf("dropRoot must keep a lone non-root")
 	}
 }
+
+func TestBuiltinProfilePolicyAndMigration(t *testing.T) {
+	if len(builtinTemplates()) != 5 {
+		t.Fatal("expected five immutable profiles")
+	}
+	if builtinTemplates()[0].ValidDays != 90 || builtinTemplates()[0].MaxDays != 365 {
+		t.Fatal("server validity defaults changed")
+	}
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`[{"name":"legacy","description":"kept","organization":"Org","country":"AT","algo":"ecp256","valid_days":400,"profile":"server"}]`)
+	if err = os.WriteFile(s.templatesPath(), legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	tmpls, err := s.LoadTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tmpls) != 1 || tmpls[0].Name != "legacy" || tmpls[0].Description != "kept" || tmpls[0].ValidDays != 400 || tmpls[0].MaxDays != 400 || len(tmpls[0].AllowedAlgos) != 4 {
+		t.Fatalf("migration lost data: %+v", tmpls)
+	}
+	if err = s.UpdateTemplate("legacy", CertTemplate{Algo: algoECP256, Profile: profileServer, AllowedAlgos: []keyAlgo{algoECP256}, ValidDays: 1, MaxDays: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.GetTemplate("legacy"); !ok {
+		t.Fatal("migrated profile disappeared")
+	}
+}
+
+func TestPurposeSANValidation(t *testing.T) {
+	profile := builtinTemplates()[0]
+	if err := validateIssuePolicy(profile, caRoot, 90, algoECP256, "host", []string{"host"}, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateIssuePolicy(profile, caRoot, 90, algoECP256, "host", nil, nil, nil, nil); err == nil {
+		t.Fatal("server without SAN accepted")
+	}
+	if err := validateIssuePolicy(profile, caRoot, 366, algoECP256, "host", []string{"host"}, nil, nil, nil); err == nil {
+		t.Fatal("validity over maximum accepted")
+	}
+	code := builtinTemplates()[3]
+	if err := validateIssuePolicy(code, caRoot, 365, algoECP256, "program", nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateIssuePolicy(code, caRoot, 365, algoECP256, "program", []string{"host"}, nil, nil, nil); err == nil {
+		t.Fatal("code-signing SAN accepted")
+	}
+}

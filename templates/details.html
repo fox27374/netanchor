@@ -31,15 +31,18 @@
     <div class="identrow">
       <span class="cardtitle">Subject Alternative Names</span>
       <div class="identval">
-        {{if or $i.DNSNames $i.IPAddresses}}
+        {{if or $i.DNSNames $i.IPAddresses $i.EmailAddresses $i.URIs}}
           {{range $i.DNSNames}}<span class="pill san">DNS: {{.}}</span>{{end}}
           {{range $i.IPAddresses}}<span class="pill san">IP: {{.}}</span>{{end}}
+          {{range $i.EmailAddresses}}<span class="pill san">Email: {{.}}</span>{{end}}
+          {{range $i.URIs}}<span class="pill san">URI: {{.}}</span>{{end}}
         {{else}}<span class="muted">none</span>{{end}}
       </div>
     </div>
   </div>
 
   <table class="kv">
+    {{if $d.TemplateName}}<tr><th>Issued from template</th><td>{{$d.TemplateName}}<div>{{$d.TemplatePolicy.Profile}}; validity {{$d.TemplatePolicy.ValidDays}}d default / {{$d.TemplatePolicy.MaxDays}}d max</div><div>Allowed keys: {{range $d.TemplatePolicy.AllowedAlgos}}{{.}} {{end}}</div><div>Allowed issuers: {{if $d.TemplatePolicy.AllowedIssuers}}{{range $d.TemplatePolicy.AllowedIssuers}}{{.}} {{end}}{{else}}all{{end}}</div><div>Subject defaults: {{$d.TemplatePolicy.Organization}} {{if $d.TemplatePolicy.Country}}({{$d.TemplatePolicy.Country}}){{end}}</div></td></tr>{{end}}
     <tr><th>Subject</th><td>{{$i.Subject}}</td></tr>
     <tr><th>Issuer</th><td>{{$i.Issuer}}</td></tr>
     <tr><th>Serial</th><td class="wrap">{{$i.SerialHex}}</td></tr>

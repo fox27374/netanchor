@@ -4,23 +4,27 @@
   <p class="muted">NetAnchor generates a fresh key pair and signs a certificate with your CA. You'll be able to download the certificate and the private key.</p>
   <form method="post" action="/issue">
     {{if .Data}}
-    <label for="template">Template (optional)</label>
-    <select id="template" name="_template">
-      <option value="">— none —</option>
-      {{range .Data}}<option value="{{.Name}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>{{end}}
+    <label for="template">Certificate profile (required)</label>
+    <select id="template" name="template" required>
+      <option value="">— select profile —</option>
+      {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}
     </select>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">Selecting a template fills the fields below; you can still edit them.</p>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">The selected profile determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
     {{end}}
 
     <label for="common_name">Common Name</label>
-    <input id="common_name" name="common_name" placeholder="example.local" required>
+    <input id="common_name" name="common_name" placeholder="example.local">
 
     <label for="organization">Organization (optional)</label>
     <input id="organization" name="organization" placeholder="Acme Corp">
 
-    <label for="sans">Subject Alternative Names (optional)</label>
-    <textarea id="sans" name="sans" placeholder="example.local&#10;www.example.local&#10;127.0.0.1" style="min-height:90px"></textarea>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">One per line (or comma separated). DNS names and IP addresses are detected automatically.</p>
+    <label for="country">Country code (optional)</label>
+    <input id="country" name="country" maxlength="2" placeholder="AT">
+
+    <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server profiles)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>
+    <div data-san-type="ip"><label for="ip_sans">IP SANs</label><textarea id="ip_sans" name="ip_sans" placeholder="192.0.2.1"></textarea></div>
+    <div data-san-type="email"><label for="email_sans">Email SANs (required for S/MIME)</label><textarea id="email_sans" name="email_sans"></textarea></div>
+    <div data-san-type="uri"><label for="uri_sans">URI SANs</label><textarea id="uri_sans" name="uri_sans"></textarea></div>
 
     <div class="row">
       <div>
@@ -29,20 +33,13 @@
           {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
         </select>
       </div>
-      <div>
-        <label for="profile">Profile</label>
-        <select id="profile" name="profile">
-          <option value="server">Server (TLS server auth)</option>
-          <option value="client">Client (TLS client auth)</option>
-          <option value="both">Server + Client</option>
-        </select>
-      </div>
     </div>
 
     <div class="row">
       <div>
         <label for="algo">Key algorithm</label>
         <select id="algo" name="algo">
+          <option value="">Profile default</option>
           <option value="ecp256">ECDSA P-256 (recommended)</option>
           <option value="ecp384">ECDSA P-384</option>
           <option value="rsa2048">RSA 2048</option>
@@ -51,7 +48,7 @@
       </div>
       <div>
         <label for="valid_days">Validity (days)</label>
-        <input id="valid_days" name="valid_days" type="number" value="365" min="1">
+        <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
       </div>
     </div>
 
@@ -63,21 +60,30 @@
 </div>
 {{if .Data}}
 <script>
-  var TT = {
-    {{range .Data}}"{{.Name}}": {org:"{{.Organization}}", algo:"{{.Algo}}", days:{{.ValidDays}}, profile:"{{.Profile}}"},
-    {{end}}
-  };
   (function () {
-    var sel = document.getElementById('template');
-    if (!sel) return;
-    sel.addEventListener('change', function () {
-      var t = TT[this.value];
-      if (!t) return;
-      var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
-      set('organization', t.org);
-      set('valid_days', t.days);
-      set('algo', t.algo);
-      set('profile', t.profile);
+    var select = document.getElementById('template');
+    select.addEventListener('change', function () {
+      var t = select.options[select.selectedIndex].dataset;
+      if (!select.value) return;
+      document.getElementById('valid_days').value = t.days;
+      document.getElementById('valid_days').max = t.max;
+      document.getElementById('organization').value = t.org;
+      document.getElementById('country').value = t.country;
+      var algo = document.getElementById('algo');
+      algo.value = t.algo;
+      Array.from(algo.options).forEach(function (o) { o.disabled = !t.algos.split(',').includes(o.value); });
+      document.querySelectorAll('[data-san-type]').forEach(function (section) {
+        var kind = section.dataset.sanType;
+        var allowed = t.purpose === 'client' ||
+          ((t.purpose === 'server' || t.purpose === 'both') && (kind === 'dns' || kind === 'ip')) ||
+          (t.purpose === 'email' && kind === 'email');
+        section.hidden = !allowed;
+        if (!allowed) section.querySelector('textarea').value = '';
+      });
+      var issuer = document.getElementById('issuer');
+      Array.from(issuer.options).forEach(function (o) { o.disabled = !!t.issuers && !t.issuers.split(',').includes(o.value); });
+      if (!issuer.selectedOptions.length || issuer.selectedOptions[0].disabled) issuer.value = Array.from(issuer.options).find(function (o) { return !o.disabled; })?.value || '';
+      issuer.dispatchEvent(new Event('change'));
     });
   })();
 </script>

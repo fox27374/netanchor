@@ -1,23 +1,25 @@
 {{define "content"}}
 <h2>Certificate templates</h2>
-<p class="muted">Reusable presets for issuing certificates and signing CSRs. Pick a template on the Issue / Sign pages to pre-fill the form.</p>
+<p class="muted">Server-enforced leaf-certificate profiles define purpose, identity rules, key algorithms, issuers and validity limits.</p>
+<p class="muted">TLS server profiles require DNS or IP SANs; S/MIME requires an email SAN. Client and code-signing profiles require a subject identity, and code signing does not permit SANs.</p>
 
 <div class="panel">
   <p class="cardtitle">Templates</p>
-  {{$tmpls := .Data}}
+  {{$tmpls := .Data.Custom}}
+  <h3>Built-in profiles</h3><table class="stack"><thead><tr><th>Name / purpose</th><th>Policy</th><th>Validity</th><th></th></tr></thead><tbody>{{range .Data.Builtins}}<tr><td>{{.Name}}<div class="muted">{{.Description}} · {{.Profile}}</div></td><td data-label="Policy">{{range .AllowedAlgos}}{{.}} {{end}} · all issuers</td><td data-label="Validity">{{.ValidDays}}d default / {{.MaxDays}}d max</td><td><form method="post" action="/templates/duplicate"><input type="hidden" name="source" value="{{.Name}}"><label>New name</label><input name="name" value="Copy-{{.Name}}" required><button class="btn secondary">Duplicate</button></form></td></tr>{{end}}</tbody></table>
+  <h3>Custom profiles</h3>
   {{if $tmpls}}
   <table class="stack">
-    <thead><tr><th>Name</th><th>Profile</th><th>Key</th><th>Validity</th><th>Organization</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Purpose</th><th>Validity</th><th>Organization</th><th></th></tr></thead>
     <tbody>
       {{range $tmpls}}
       <tr>
         <td><a href="/templates/edit/{{.Name}}">{{.Name}}</a>{{if .Description}}<div class="muted" style="font-size:12px">{{.Description}}</div>{{end}}</td>
         <td data-label="Profile">{{.Profile}}</td>
-        <td class="mono" data-label="Key">{{.Algo}}</td>
-        <td class="mono" data-label="Validity">{{.ValidDays}}d</td>
+        <td class="mono" data-label="Validity">{{.ValidDays}}d / {{.MaxDays}}d max</td>
         <td data-label="Organization">{{if .Organization}}{{.Organization}}{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="links" style="text-align:right">
-          <a href="/templates/edit/{{.Name}}">Edit</a>
+          <a href="/templates/edit/{{.Name}}">Edit</a><div class="muted">Keys: {{range .AllowedAlgos}}{{.}} {{end}} · Issuers: {{if .AllowedIssuers}}{{range .AllowedIssuers}}{{.}} {{end}}{{else}}all{{end}}</div>
           <form method="post" action="/templates/delete" onsubmit="return confirm('Delete template {{.Name}}?')" style="display:inline;margin-left:10px">
             <input type="hidden" name="name" value="{{.Name}}">
             <button class="linklike" type="submit">Delete</button>
@@ -28,7 +30,7 @@
     </tbody>
   </table>
   {{else}}
-  <div class="empty">No templates yet. Create one below.</div>
+   <div class="empty">No custom profiles yet. Built-in profiles remain available above.</div>
   {{end}}
 </div>
 
@@ -45,6 +47,8 @@
         <input id="t_desc" name="description" placeholder="Internal web servers, 1 year">
       </div>
     </div>
+    <label for="t_issuers">Allowed issuer CA IDs (optional, comma separated)</label><input id="t_issuers" name="allowed_issuers" placeholder="root, CA serial">
+    <fieldset><legend>Allowed key algorithms</legend><label><input type="checkbox" name="allowed_algorithms" value="ecp256" checked style="width:auto"> ECDSA P-256</label><label><input type="checkbox" name="allowed_algorithms" value="ecp384" checked style="width:auto"> ECDSA P-384</label><label><input type="checkbox" name="allowed_algorithms" value="rsa2048" checked style="width:auto"> RSA 2048</label><label><input type="checkbox" name="allowed_algorithms" value="rsa4096" checked style="width:auto"> RSA 4096</label></fieldset>
     <div class="row">
       <div>
         <label for="t_profile">Profile</label>
@@ -52,7 +56,11 @@
           <option value="server">Server (TLS server auth)</option>
           <option value="client">Client (TLS client auth)</option>
           <option value="both">Server + Client</option>
+          <option value="code">Code signing</option><option value="email">S/MIME</option>
         </select>
+      </div>
+      <div>
+        <label for="t_max">Maximum validity (days)</label><input id="t_max" name="max_days" type="number" value="365" min="1">
       </div>
       <div>
         <label for="t_algo">Key algorithm</label>
@@ -65,7 +73,7 @@
       </div>
       <div>
         <label for="t_days">Validity (days)</label>
-        <input id="t_days" name="valid_days" type="number" value="365" min="1">
+        <input id="t_days" name="valid_days" type="number" value="90" min="1">
       </div>
     </div>
     <div class="row">
@@ -81,4 +89,15 @@
     <button class="btn" type="submit">Add template</button>
   </form>
 </div>
+<script>
+  (function () {
+    var purposes = {server:[90,365],client:[365,730],both:[90,365],code:[365,1095],email:[365,730]};
+    document.getElementById('t_profile').addEventListener('change', function () {
+      var days = purposes[this.value];
+      if (!days) return;
+      document.getElementById('t_days').value = days[0];
+      document.getElementById('t_max').value = days[1];
+    });
+  })();
+</script>
 {{end}}

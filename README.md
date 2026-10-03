@@ -39,9 +39,12 @@ PKCS#12 encoder. Everything else uses the standard library:
 - **HTTPS by default** — the GUI is served over TLS. The server certificate is
   issued by your own root CA when one is available (import the root and the GUI
   is trusted), otherwise it's self-signed.
-- **Certificate templates** — reusable issuance presets (key algorithm, validity,
-  profile/EKU, organization, country). Manage them under the **Templates** menu
-  (admin) and pick one on the Issue / Sign pages to pre-fill the form.
+- **Certificate profiles** — choose a built-in TLS server, TLS client, dual-use,
+  code-signing, or S/MIME template when issuing or signing a CSR. The server
+  enforces the selected purpose, identity/SAN rules, allowed keys and issuers,
+  and validity maximum. Admins can duplicate built-ins or create custom
+  profiles; existing templates are migrated. Issued certificates retain a
+  snapshot of the policy used, visible on the dashboard and details page.
 - **Certificate details page** — full inspection with Common Name and SANs shown
   up front, plus issuer, validity, key usages, algorithms, and SHA-256/SHA-1
   fingerprints. The cert (and, for admins, the private key) are shown inline as

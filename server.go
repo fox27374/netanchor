@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,7 +46,14 @@ func NewServer(store *Store, auth *Auth) *Server {
 	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
-		tpls[p] = template.Must(template.New(p).ParseFS(
+		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
+			for _, a := range list {
+				if string(a) == value {
+					return true
+				}
+			}
+			return false
+		}}).ParseFS(
 			templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
 	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash)}
@@ -79,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 	// Certificate templates (issuance presets).
 	mux.HandleFunc("GET /templates", s.handleTemplates)
 	mux.HandleFunc("POST /templates/add", s.handleTemplateAdd)
+	mux.HandleFunc("POST /templates/duplicate", s.handleTemplateDuplicate)
 	mux.HandleFunc("GET /templates/edit/{name}", s.handleTemplateEditForm)
 	mux.HandleFunc("POST /templates/edit/{name}", s.handleTemplateEdit)
 	mux.HandleFunc("POST /templates/delete", s.handleTemplateDelete)
@@ -445,13 +454,43 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	p := IssueParams{
 		CommonName:   strings.TrimSpace(r.FormValue("common_name")),
 		Organization: strings.TrimSpace(r.FormValue("organization")),
-		SANs:         splitLines(r.FormValue("sans")),
-		Algo:         keyAlgo(r.FormValue("algo")),
-		ValidDays:    atoiDefault(r.FormValue("valid_days"), 365),
-		Profile:      certProfile(r.FormValue("profile")),
+		Country:      strings.TrimSpace(r.FormValue("country")),
 		IssuerID:     r.FormValue("issuer"),
 		CAPassphrase: r.FormValue("ca_passphrase"),
 	}
+	selected := strings.TrimSpace(r.FormValue("template"))
+	t, ok := s.store.GetTemplate(selected)
+	if !ok {
+		s.issueError(w, r, "Select a valid certificate template.")
+		return
+	}
+	p.Template = t
+	p.TemplateName = t.Name
+	p.Algo = keyAlgo(r.FormValue("algo"))
+	if p.Algo == "" {
+		p.Algo = t.Algo
+	}
+	days, provided, err := parseRequestedDays(r)
+	if err != nil {
+		s.issueError(w, r, err.Error())
+		return
+	}
+	p.ValidDays = days
+	if !provided {
+		p.ValidDays = t.ValidDays
+	}
+	p.Profile = t.Profile
+	p.DNSNames = splitLines(r.FormValue("dns_sans"))
+	for _, v := range splitLines(r.FormValue("ip_sans")) {
+		ip := net.ParseIP(v)
+		if ip == nil {
+			s.issueError(w, r, "Invalid IP SAN.")
+			return
+		}
+		p.IPs = append(p.IPs, ip)
+	}
+	p.Emails = splitLines(r.FormValue("email_sans"))
+	p.URIs = splitLines(r.FormValue("uri_sans"))
 	rec, err := IssueCert(s.store, p)
 	if err != nil {
 		d := s.formBase(r, "Issue Certificate", "issue")
@@ -462,6 +501,12 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	s.message(w, r, "Certificate issued",
 		fmt.Sprintf("Issued certificate for %q (serial %s). View or download it from the dashboard.",
 			rec.CommonName, rec.Serial))
+}
+
+func (s *Server) issueError(w http.ResponseWriter, r *http.Request, msg string) {
+	d := s.formBase(r, "Issue Certificate", "issue")
+	d.Error = msg
+	s.render(w, "issue", d)
 }
 
 // --- sign ----------------------------------------------------------------
@@ -504,11 +549,31 @@ func (s *Server) handleSign(w http.ResponseWriter, r *http.Request) {
 
 	p := SignCSRParams{
 		CSRPEM:       csrPEM,
-		ValidDays:    atoiDefault(r.FormValue("valid_days"), 365),
-		Profile:      certProfile(r.FormValue("profile")),
 		IssuerID:     r.FormValue("issuer"),
 		CAPassphrase: r.FormValue("ca_passphrase"),
 	}
+	selected := strings.TrimSpace(r.FormValue("template"))
+	t, ok := s.store.GetTemplate(selected)
+	if !ok {
+		d := s.formBase(r, "Sign CSR", "sign")
+		d.Error = "Select a valid certificate template."
+		s.render(w, "sign", d)
+		return
+	}
+	p.Template = t
+	p.TemplateName = t.Name
+	days, provided, err := parseRequestedDays(r)
+	if err != nil {
+		d := s.formBase(r, "Sign CSR", "sign")
+		d.Error = err.Error()
+		s.render(w, "sign", d)
+		return
+	}
+	p.ValidDays = days
+	if !provided {
+		p.ValidDays = t.ValidDays
+	}
+	p.Profile = t.Profile
 	rec, err := SignCSR(s.store, p)
 	if err != nil {
 		d := s.formBase(r, "Sign CSR", "sign")
@@ -524,16 +589,18 @@ func (s *Server) handleSign(w http.ResponseWriter, r *http.Request) {
 // --- details -------------------------------------------------------------
 
 type detailsPage struct {
-	Info     CertInfo
-	KindTag  string
-	IsCAView bool
-	CAID     string
-	Serial   string
-	HasKey   bool
-	CanChain bool
-	CertPEM  string // inline, copy-paste
-	KeyPEM   string // inline, admin only
-	Chain    []chainStep
+	Info           CertInfo
+	KindTag        string
+	IsCAView       bool
+	CAID           string
+	Serial         string
+	HasKey         bool
+	CanChain       bool
+	CertPEM        string // inline, copy-paste
+	KeyPEM         string // inline, admin only
+	Chain          []chainStep
+	TemplateName   string
+	TemplatePolicy CertTemplate
 }
 
 // chainStep is one box in the chain schematic, root first. Href is empty for
@@ -595,12 +662,13 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 	// CanChain is true if issued by any CA that is not root (i.e., any intermediate)
 	canChain := rec.IssuerID != "" && rec.IssuerID != caRoot
 	dp := detailsPage{
-		Info:     describeCert(cert),
-		KindTag:  kindTag(rec.Kind),
-		Serial:   serial,
-		HasKey:   rec.HasKey,
-		CanChain: canChain,
-		CertPEM:  string(pemBytes),
+		Info:         describeCert(cert),
+		KindTag:      kindTag(rec.Kind),
+		Serial:       serial,
+		HasKey:       rec.HasKey,
+		CanChain:     canChain,
+		CertPEM:      string(pemBytes),
+		TemplateName: rec.TemplateName, TemplatePolicy: rec.TemplatePolicy,
 	}
 	if rec.IssuerID != "" {
 		if chain := s.caChain(rec.IssuerID); chain != nil {
@@ -1115,20 +1183,42 @@ func (s *Server) templatesPage(w http.ResponseWriter, r *http.Request, errMsg st
 	}
 	d := s.base(r, "Templates", "templates")
 	d.Error = errMsg
-	d.Data = tmpls
+	d.Data = struct{ Builtins, Custom []CertTemplate }{builtinTemplates(), tmpls}
 	s.render(w, "templates", d)
 }
 
-func templateFromForm(r *http.Request) CertTemplate {
-	return CertTemplate{
-		Name:         strings.TrimSpace(r.FormValue("name")),
-		Description:  strings.TrimSpace(r.FormValue("description")),
-		Organization: strings.TrimSpace(r.FormValue("organization")),
-		Country:      strings.TrimSpace(r.FormValue("country")),
-		Algo:         keyAlgo(r.FormValue("algo")),
-		ValidDays:    atoiDefault(r.FormValue("valid_days"), 365),
-		Profile:      certProfile(r.FormValue("profile")),
+func templateFromForm(r *http.Request) (CertTemplate, error) {
+	valid, err := formInt(r, "valid_days", 365)
+	if err != nil {
+		return CertTemplate{}, err
 	}
+	max, err := formInt(r, "max_days", 365)
+	if err != nil {
+		return CertTemplate{}, err
+	}
+	return CertTemplate{
+		Name:           strings.TrimSpace(r.FormValue("name")),
+		Description:    strings.TrimSpace(r.FormValue("description")),
+		Organization:   strings.TrimSpace(r.FormValue("organization")),
+		Country:        strings.TrimSpace(r.FormValue("country")),
+		Algo:           keyAlgo(r.FormValue("algo")),
+		ValidDays:      valid,
+		MaxDays:        max,
+		Profile:        certProfile(r.FormValue("profile")),
+		AllowedAlgos:   allowedAlgorithms(r),
+		AllowedIssuers: splitLines(strings.Join(r.Form["allowed_issuers"], ",")),
+	}, nil
+}
+
+func allowedAlgorithms(r *http.Request) []keyAlgo {
+	var a []keyAlgo
+	for _, v := range r.Form["allowed_algorithms"] {
+		switch keyAlgo(v) {
+		case algoRSA2048, algoRSA4096, algoECP256, algoECP384:
+			a = append(a, keyAlgo(v))
+		}
+	}
+	return a
 }
 
 func (s *Server) handleTemplateAdd(w http.ResponseWriter, r *http.Request) {
@@ -1136,7 +1226,30 @@ func (s *Server) handleTemplateAdd(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.store.AddTemplate(templateFromForm(r)); err != nil {
+	t, err := templateFromForm(r)
+	if err == nil {
+		err = s.store.AddTemplate(t)
+	}
+	if err != nil {
+		s.templatesPage(w, r, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/templates", http.StatusSeeOther)
+}
+
+func (s *Server) handleTemplateDuplicate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	source, ok := builtinByName(r.FormValue("source"))
+	if !ok {
+		s.templatesPage(w, r, "Unknown built-in profile.")
+		return
+	}
+	source.Name = strings.TrimSpace(r.FormValue("name"))
+	source.Builtin = false
+	if err := s.store.AddTemplate(source); err != nil {
 		s.templatesPage(w, r, err.Error())
 		return
 	}
@@ -1145,7 +1258,7 @@ func (s *Server) handleTemplateAdd(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTemplateEditForm(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.store.GetTemplate(r.PathValue("name"))
-	if !ok {
+	if !ok || t.Builtin {
 		http.NotFound(w, r)
 		return
 	}
@@ -1160,8 +1273,11 @@ func (s *Server) handleTemplateEdit(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	t := templateFromForm(r)
-	if err := s.store.UpdateTemplate(name, t); err != nil {
+	t, err := templateFromForm(r)
+	if err == nil {
+		err = s.store.UpdateTemplate(name, t)
+	}
+	if err != nil {
 		t.Name = name
 		d := s.base(r, "Edit template", "templates")
 		d.Error = err.Error()
@@ -1188,7 +1304,7 @@ func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) formBase(r *http.Request, title, active string) pageData {
 	d := s.base(r, title, active)
 	tmpls, _ := s.store.LoadTemplates()
-	d.Data = tmpls
+	d.Data = struct{ Builtins, Custom []CertTemplate }{builtinTemplates(), tmpls}
 
 	// Build list of CAs that can issue certs (all CAs except root if intermediates exist)
 	// Actually, all CAs can issue: root, and all intermediates
@@ -1235,6 +1351,29 @@ func atoiDefault(s string, def int) int {
 		return n
 	}
 	return def
+}
+
+func formInt(r *http.Request, name string, def int) (int, error) {
+	raw := strings.TrimSpace(r.FormValue(name))
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive number", strings.ReplaceAll(name, "_", " "))
+	}
+	return n, nil
+}
+func parseRequestedDays(r *http.Request) (int, bool, error) {
+	raw := strings.TrimSpace(r.FormValue("valid_days"))
+	if raw == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, true, fmt.Errorf("validity must be a positive number of days")
+	}
+	return n, true, nil
 }
 
 func splitLines(s string) []string {

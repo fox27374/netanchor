@@ -21,17 +21,19 @@ const (
 
 // CertRecord is the metadata we keep about each certificate.
 type CertRecord struct {
-	Serial     string    `json:"serial"`
-	CommonName string    `json:"common_name"`
-	Kind       string    `json:"kind"`            // "root", "intermediate", "issued", "csr"
-	IssuerID   string    `json:"issuer_id"`       // which CA signed it: "root" or "intermediate" or other CA id
-	CAID       string    `json:"ca_id,omitempty"` // CA id for intermediates (serial hex for new, empty for legacy)
-	AllowSubCA bool      `json:"allow_sub_ca"`    // for intermediates: if true, can sign other CAs; if false, leaf-only
-	NotBefore  time.Time `json:"not_before"`
-	NotAfter   time.Time `json:"not_after"`
-	HasKey     bool      `json:"has_key"`
-	KeyEnc     bool      `json:"key_encrypted"`
-	CreatedAt  time.Time `json:"created_at"`
+	Serial         string       `json:"serial"`
+	CommonName     string       `json:"common_name"`
+	Kind           string       `json:"kind"`            // "root", "intermediate", "issued", "csr"
+	IssuerID       string       `json:"issuer_id"`       // which CA signed it: "root" or "intermediate" or other CA id
+	CAID           string       `json:"ca_id,omitempty"` // CA id for intermediates (serial hex for new, empty for legacy)
+	AllowSubCA     bool         `json:"allow_sub_ca"`    // for intermediates: if true, can sign other CAs; if false, leaf-only
+	NotBefore      time.Time    `json:"not_before"`
+	NotAfter       time.Time    `json:"not_after"`
+	HasKey         bool         `json:"has_key"`
+	KeyEnc         bool         `json:"key_encrypted"`
+	CreatedAt      time.Time    `json:"created_at"`
+	TemplateName   string       `json:"template_name,omitempty"`
+	TemplatePolicy CertTemplate `json:"template_policy,omitempty"`
 }
 
 // Store is a tiny file-backed persistence layer.
@@ -401,7 +403,35 @@ func (s *Store) LoadTemplates() ([]CertTemplate, error) {
 	if err := json.Unmarshal(data, &tmpls); err != nil {
 		return nil, err
 	}
-	return tmpls, nil
+	migrated := migrateTemplates(tmpls)
+	if len(migrated) > 0 {
+		old, _ := json.Marshal(tmpls)
+		next, _ := json.Marshal(migrated)
+		if string(old) != string(next) {
+			if err := s.saveTemplates(migrated); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return migrated, nil
+}
+
+func migrateTemplates(in []CertTemplate) []CertTemplate {
+	for i := range in {
+		if in[i].MaxDays == 0 {
+			max := in[i].ValidDays
+			for _, b := range builtinTemplates() {
+				if b.Profile == in[i].Profile && b.MaxDays > max {
+					max = b.MaxDays
+				}
+			}
+			in[i].MaxDays = max
+		}
+		if len(in[i].AllowedAlgos) == 0 {
+			in[i].AllowedAlgos = []keyAlgo{algoRSA2048, algoRSA4096, algoECP256, algoECP384}
+		}
+	}
+	return in
 }
 
 func (s *Store) saveTemplates(tmpls []CertTemplate) error {
@@ -412,7 +442,19 @@ func (s *Store) saveTemplates(tmpls []CertTemplate) error {
 	return os.WriteFile(s.templatesPath(), data, 0o600)
 }
 
+func (s *Store) validateTemplateIssuers(t CertTemplate) error {
+	for _, id := range t.AllowedIssuers {
+		if !s.ValidCAID(id) {
+			return fmt.Errorf("issuer CA %q does not exist", id)
+		}
+	}
+	return nil
+}
+
 func (s *Store) GetTemplate(name string) (CertTemplate, bool) {
+	if strings.HasPrefix(name, "builtin:") {
+		return builtinByName(strings.TrimPrefix(name, "builtin:"))
+	}
 	tmpls, err := s.LoadTemplates()
 	if err != nil {
 		return CertTemplate{}, false
@@ -422,7 +464,7 @@ func (s *Store) GetTemplate(name string) (CertTemplate, bool) {
 			return t, true
 		}
 	}
-	return CertTemplate{}, false
+	return builtinByName(name)
 }
 
 // AddTemplate stores a new template, rejecting duplicate names.
@@ -430,11 +472,17 @@ func (s *Store) AddTemplate(t CertTemplate) error {
 	if err := t.normalize(); err != nil {
 		return err
 	}
+	if err := s.validateTemplateIssuers(t); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tmpls, err := s.LoadTemplates()
 	if err != nil {
 		return err
+	}
+	if _, ok := builtinByName(t.Name); ok {
+		return errors.New("built-in templates cannot be overwritten")
 	}
 	for _, e := range tmpls {
 		if strings.EqualFold(e.Name, t.Name) {
@@ -450,6 +498,9 @@ func (s *Store) AddTemplate(t CertTemplate) error {
 func (s *Store) UpdateTemplate(name string, t CertTemplate) error {
 	t.Name = name
 	if err := t.normalize(); err != nil {
+		return err
+	}
+	if err := s.validateTemplateIssuers(t); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -597,9 +648,9 @@ func (s *Store) trash(recs, removed []CertRecord) error {
 		return err
 	}
 
-	gone := map[CertRecord]bool{}
+	gone := map[string]bool{}
 	for _, r := range removed {
-		gone[r] = true
+		gone[r.Serial] = true
 		if r.Kind == caIntermediate {
 			id := caIDOf(r)
 			if err := os.Rename(s.caDir(id), filepath.Join(dst, "cas", id)); err != nil {
@@ -617,7 +668,7 @@ func (s *Store) trash(recs, removed []CertRecord) error {
 
 	kept := recs[:0]
 	for _, r := range recs {
-		if !gone[r] {
+		if !gone[r.Serial] {
 			kept = append(kept, r)
 		}
 	}

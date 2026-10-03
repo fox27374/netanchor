@@ -4,10 +4,10 @@
   <p class="muted">Paste a PEM-encoded CSR or upload a file. NetAnchor verifies the request signature and issues a certificate signed by your CA. The requester keeps their own private key.</p>
   <form method="post" action="/sign" enctype="multipart/form-data">
     {{if .Data}}
-    <label for="template">Template (optional)</label>
-    <select id="template" name="_template">
-      <option value="">— none —</option>
-      {{range .Data}}<option value="{{.Name}}">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>{{end}}
+    <label for="template">Certificate profile (required)</label>
+    <select id="template" name="template" required>
+      <option value="">— select profile —</option>
+      {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}
     </select>
     <p class="muted" style="font-size:12px;margin:6px 0 0">A template sets the profile and validity below (subject and key come from the CSR).</p>
     {{end}}
@@ -26,16 +26,8 @@
         </select>
       </div>
       <div>
-        <label for="profile">Profile</label>
-        <select id="profile" name="profile">
-          <option value="server">Server (TLS server auth)</option>
-          <option value="client">Client (TLS client auth)</option>
-          <option value="both">Server + Client</option>
-        </select>
-      </div>
-      <div>
         <label for="valid_days">Validity (days)</label>
-        <input id="valid_days" name="valid_days" type="number" value="365" min="1">
+        <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
       </div>
     </div>
 
@@ -47,18 +39,18 @@
 </div>
 {{if .Data}}
 <script>
-  var TT = {
-    {{range .Data}}"{{.Name}}": {days:{{.ValidDays}}, profile:"{{.Profile}}"},
-    {{end}}
-  };
   (function () {
     var sel = document.getElementById('template');
-    if (!sel) return;
     sel.addEventListener('change', function () {
-      var t = TT[this.value];
-      if (!t) return;
-      var days = document.getElementById('valid_days'); if (days) days.value = t.days;
-      var prof = document.getElementById('profile'); if (prof) prof.value = t.profile;
+      if (!sel.value) return;
+      var t = sel.options[sel.selectedIndex].dataset;
+      var days = document.getElementById('valid_days');
+      days.value = t.days;
+      days.max = t.max;
+      var issuer = document.getElementById('issuer');
+      Array.from(issuer.options).forEach(function (o) { o.disabled = !!t.issuers && !t.issuers.split(',').includes(o.value); });
+      if (!issuer.selectedOptions.length || issuer.selectedOptions[0].disabled) issuer.value = Array.from(issuer.options).find(function (o) { return !o.disabled; })?.value || '';
+      issuer.dispatchEvent(new Event('change'));
     });
   })();
 </script>

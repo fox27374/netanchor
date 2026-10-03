@@ -14,7 +14,11 @@
           <option value="server" {{if eq (printf "%s" $t.Profile) "server"}}selected{{end}}>Server (TLS server auth)</option>
           <option value="client" {{if eq (printf "%s" $t.Profile) "client"}}selected{{end}}>Client (TLS client auth)</option>
           <option value="both" {{if eq (printf "%s" $t.Profile) "both"}}selected{{end}}>Server + Client</option>
+          <option value="code" {{if eq (printf "%s" $t.Profile) "code"}}selected{{end}}>Code signing</option><option value="email" {{if eq (printf "%s" $t.Profile) "email"}}selected{{end}}>S/MIME</option>
         </select>
+      </div>
+      <div>
+        <label for="t_max">Maximum validity (days)</label><input id="t_max" name="max_days" type="number" value="{{$t.MaxDays}}" min="1">
       </div>
       <div>
         <label for="t_algo">Key algorithm</label>
@@ -30,6 +34,8 @@
         <input id="t_days" name="valid_days" type="number" value="{{$t.ValidDays}}" min="1">
       </div>
     </div>
+    <label for="t_issuers">Allowed issuer CA IDs (optional, comma separated)</label><input id="t_issuers" name="allowed_issuers" value="{{joinStrings $t.AllowedIssuers}}">
+    <fieldset><legend>Allowed key algorithms</legend><label><input type="checkbox" name="allowed_algorithms" value="ecp256" {{if hasAlgo $t.AllowedAlgos "ecp256"}}checked{{end}} style="width:auto"> ECDSA P-256</label><label><input type="checkbox" name="allowed_algorithms" value="ecp384" {{if hasAlgo $t.AllowedAlgos "ecp384"}}checked{{end}} style="width:auto"> ECDSA P-384</label><label><input type="checkbox" name="allowed_algorithms" value="rsa2048" {{if hasAlgo $t.AllowedAlgos "rsa2048"}}checked{{end}} style="width:auto"> RSA 2048</label><label><input type="checkbox" name="allowed_algorithms" value="rsa4096" {{if hasAlgo $t.AllowedAlgos "rsa4096"}}checked{{end}} style="width:auto"> RSA 4096</label></fieldset>
     <div class="row">
       <div>
         <label for="t_org">Organization (optional)</label>
