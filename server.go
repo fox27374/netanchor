@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/x509"
 	"embed"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"html/template"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
@@ -19,26 +22,42 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+//go:embed templates/logo.svg
+var logoSVG []byte
+
 // Server wires the store and auth to the HTTP handlers and parsed templates.
 type Server struct {
 	store     *Store
 	auth      *Auth
 	templates map[string]*template.Template
+	flashMu   sync.Mutex
+	flashes   map[string]caFlash
+}
+
+const caFlashCookie = "netanchor_ca_flash"
+
+type caFlash struct {
+	Title, Body string
+	Expires     time.Time
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).ParseFS(
 			templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
-	return &Server{store: store, auth: auth, templates: tpls}
+	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash)}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
+	mux.HandleFunc("GET /tools", s.handleTools)
+	mux.HandleFunc("POST /tools", s.handleToolsDecode)
+	mux.HandleFunc("GET /tools/{token}", s.handleToolsResult)
+	mux.HandleFunc("POST /tools/{token}/download", s.handleToolsDownload)
 	mux.HandleFunc("GET /ca", s.handleCA)
 	mux.HandleFunc("POST /ca/root", s.handleCreateRoot)
 	mux.HandleFunc("POST /ca/intermediate", s.handleCreateIntermediate)
@@ -76,12 +95,25 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
+	// The logo doubles as the favicon; /favicon.ico covers browsers that ask
+	// for it without reading the page's <link rel="icon">.
+	serveLogo := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(logoSVG)
+	}
+	mux.HandleFunc("GET /logo.svg", serveLogo)
+	mux.HandleFunc("GET /favicon.ico", serveLogo)
 	return logRequests(mux)
 }
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s", r.Method, r.URL.Path)
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/tools/") {
+			path = "/tools/[result]"
+		}
+		log.Printf("%s %s", r.Method, path)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -106,6 +138,7 @@ type pageData struct {
 	Active          string
 	Error           string
 	Message         string
+	CAFlash         *caFlash
 	Data            any
 
 	// For issue/sign forms: list of CAs that can issue certs (by CAID and DisplayPath)
@@ -176,6 +209,7 @@ func (s *Server) getIssueCAs() []caOptionData {
 			result = append(result, caOptionData{
 				CAID:        ca.ID,
 				DisplayPath: ca.Path,
+				KeyEnc:      s.store.CAKeyEncrypted(ca.ID),
 			})
 		}
 	}
@@ -224,6 +258,7 @@ type intermediateViewData struct {
 type caOptionData struct {
 	CAID        string
 	DisplayPath string
+	KeyEnc      bool // key is passphrase-protected, so signing needs the passphrase
 }
 
 func (s *Server) caData() caViewData {
@@ -259,6 +294,7 @@ func (s *Server) caData() caViewData {
 			data.ParentOptions = append(data.ParentOptions, caOptionData{
 				CAID:        ca.ID,
 				DisplayPath: ca.Path,
+				KeyEnc:      s.store.CAKeyEncrypted(ca.ID),
 			})
 		}
 	}
@@ -269,7 +305,52 @@ func (s *Server) caData() caViewData {
 func (s *Server) handleCA(w http.ResponseWriter, r *http.Request) {
 	d := s.base(r, "Certificate Authority", "ca")
 	d.Data = s.caData()
+	d.CAFlash = s.takeCAFlash(w, r)
 	s.render(w, "ca", d)
+}
+
+// CA success messages stay server-side; the browser receives only an opaque,
+// short-lived one-use token. This also keeps the deleted CA name out of URLs.
+func (s *Server) redirectCASuccess(w http.ResponseWriter, r *http.Request, title, body string) {
+	token := make([]byte, 24)
+	if _, err := rand.Read(token); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	key := hex.EncodeToString(token)
+	now := time.Now()
+	s.flashMu.Lock()
+	for k, flash := range s.flashes {
+		if !now.Before(flash.Expires) || len(s.flashes) >= 128 {
+			delete(s.flashes, k)
+		}
+	}
+	s.flashes[key] = caFlash{Title: title, Body: body, Expires: now.Add(2 * time.Minute)}
+	s.flashMu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name: caFlashCookie, Value: key, Path: "/ca", HttpOnly: true,
+		Secure: s.auth.secure, SameSite: http.SameSiteLaxMode, MaxAge: 120,
+	})
+	http.Redirect(w, r, "/ca", http.StatusSeeOther)
+}
+
+func (s *Server) takeCAFlash(w http.ResponseWriter, r *http.Request) *caFlash {
+	cookie, err := r.Cookie(caFlashCookie)
+	if err != nil {
+		return nil
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: caFlashCookie, Path: "/ca", HttpOnly: true,
+		Secure: s.auth.secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,
+	})
+	s.flashMu.Lock()
+	flash, ok := s.flashes[cookie.Value]
+	delete(s.flashes, cookie.Value)
+	s.flashMu.Unlock()
+	if !ok || !time.Now().Before(flash.Expires) {
+		return nil
+	}
+	return &flash
 }
 
 func (s *Server) handleCreateRoot(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +375,7 @@ func (s *Server) handleCreateRoot(w http.ResponseWriter, r *http.Request) {
 		s.caError(w, r, err.Error())
 		return
 	}
-	s.message(w, r, "Root CA created", "Your root CA is ready. You can now issue certificates, sign CSRs, and optionally create an intermediate CA.")
+	s.redirectCASuccess(w, r, "Root CA created", "Your root CA is ready. You can now issue certificates, sign CSRs, and optionally create an intermediate CA.")
 }
 
 func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +412,7 @@ func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request
 		s.caError(w, r, err.Error())
 		return
 	}
-	s.message(w, r, "Intermediate CA created", "Your intermediate CA is ready. You can now choose it as the issuer when creating certificates or signing CSRs.")
+	s.redirectCASuccess(w, r, "Intermediate CA created", "Your intermediate CA is ready. You can now choose it as the issuer when creating certificates or signing CSRs.")
 }
 
 func (s *Server) caError(w http.ResponseWriter, r *http.Request, msg string) {
@@ -644,7 +725,7 @@ func (s *Server) handleCADeleteConfirm(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.message(w, r, "CA deleted", fmt.Sprintf("%q, its sub-CAs and all certificates they issued were moved to the trash folder.", cn))
+	s.redirectCASuccess(w, r, "CA deleted", fmt.Sprintf("%q, its sub-CAs and all certificates they issued were moved to the trash folder.", cn))
 }
 
 // --- certificate deletion --------------------------------------------------

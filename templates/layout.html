@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · NetAnchor CA</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --muted:#94a3b8; --ok:#34d399; --err:#f87171; --line:#334155; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:#e2e8f0; }
   header { background:var(--panel); border-bottom:1px solid var(--line); padding:0 24px; display:flex; align-items:center; gap:24px; }
-  header h1 { font-size:18px; margin:0; padding:16px 0; letter-spacing:.5px; }
-  header h1 .lock { color:var(--accent); }
+  header h1 { display:flex; align-items:center; gap:10px; font-size:18px; margin:0; padding:16px 0; letter-spacing:.5px; }
   nav { display:flex; gap:4px; }
   nav a { color:var(--muted); text-decoration:none; padding:18px 14px; font-size:14px; border-bottom:2px solid transparent; }
   nav a:hover { color:#e2e8f0; }
@@ -38,6 +38,9 @@
   .alert { padding:14px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; }
   .alert.err { background:#7f1d1d33; border:1px solid var(--err); color:#fecaca; }
   .alert.ok { background:#064e3b33; border:1px solid var(--ok); color:#bbf7d0; }
+  .ca-toast { position:fixed; top:76px; right:24px; z-index:20; max-width:min(420px, calc(100vw - 48px)); box-shadow:0 8px 24px #0008; display:flex; align-items:flex-start; gap:16px; }
+  .ca-toast p { margin:6px 0 0; }
+  .ca-toast button { background:none; border:0; color:inherit; cursor:pointer; font-size:22px; line-height:1; }
   .muted { color:var(--muted); }
   .links a { color:var(--accent); text-decoration:none; margin-right:12px; font-size:13px; }
   .empty { text-align:center; padding:40px; color:var(--muted); }
@@ -162,10 +165,11 @@
 </head>
 <body>
 <header>
-  <h1><span class="lock">&#128274;</span> NetAnchor</h1>
+  <h1><img src="/logo.svg" alt="" width="26" height="26"> NetAnchor</h1>
   {{if .Authenticated}}
   <nav>
     <a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">Dashboard</a>
+    <a href="/tools" class="{{if eq .Active "tools"}}active{{end}}">Tools</a>
     <a href="/ca" class="{{if eq .Active "ca"}}active{{end}}">{{if .HasCA}}CA{{else}}Create CA{{end}}</a>
     {{if .IsAdmin}}
     <a href="/issue" class="{{if eq .Active "issue"}}active{{end}}">Issue Cert</a>
@@ -197,6 +201,25 @@
       setTimeout(function () { btn.textContent = old; }, 1200);
     });
   }
+
+  // A CA <select data-passphrase="ID"> makes input #ID required exactly when
+  // the selected option has data-enc="true" (its key is passphrase-protected).
+  document.querySelectorAll('select[data-passphrase]').forEach(function (sel) {
+    var pass = document.getElementById(sel.dataset.passphrase);
+    var lbl = document.querySelector('label[for="' + pass.id + '"]');
+    var base = lbl.textContent;
+    function sync() {
+      var opt = sel.options[sel.selectedIndex];
+      var enc = !!opt && opt.dataset.enc === 'true';
+      pass.required = enc;
+      pass.disabled = !enc;
+      if (!enc) pass.value = '';
+      lbl.textContent = base + (enc ? ' (required, the key is protected)' : ' (not needed, the key is not protected)');
+      pass.placeholder = enc ? 'Passphrase of the selected CA' : '';
+    }
+    sel.addEventListener('change', sync);
+    sync();
+  });
 </script>
 </body>
 </html>{{end}}

@@ -25,8 +25,8 @@
     <div class="row">
       <div>
         <label for="issuer">Issuing CA</label>
-        <select id="issuer" name="issuer">
-          {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}">{{.DisplayPath}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
+        <select id="issuer" name="issuer" data-passphrase="ca_passphrase">
+          {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
         </select>
       </div>
       <div>
@@ -55,13 +55,8 @@
       </div>
     </div>
 
-    <details class="adv">
-      <summary>Issuing CA passphrase</summary>
-      <div>
-        <label for="ca_passphrase">Passphrase</label>
-        <input id="ca_passphrase" name="ca_passphrase" type="password" placeholder="Only required if the issuing CA key is passphrase-protected" autocomplete="off">
-      </div>
-    </details>
+    <label for="ca_passphrase">Issuing CA passphrase</label>
+    <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
 
     <button class="btn" type="submit">Issue certificate</button>
   </form>

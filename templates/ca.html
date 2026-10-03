@@ -1,6 +1,13 @@
 {{define "content"}}
 {{$ca := .Data}}
 
+{{if .CAFlash}}
+<aside class="ca-toast alert ok" role="status" aria-live="polite">
+  <div><strong>{{.CAFlash.Title}}</strong><p>{{.CAFlash.Body}}</p></div>
+  <button type="button" aria-label="Dismiss notification" onclick="this.parentElement.remove()">&times;</button>
+</aside>
+{{end}}
+
 <h2>Certificate Authority</h2>
 
 {{/* ------------------------------ ROOT ------------------------------ */}}
@@ -140,15 +147,15 @@
         <div class="row">
           <div>
             <label for="i_parent">Parent CA</label>
-            <select id="i_parent" name="parent">
-              {{range $ca.ParentOptions}}<option value="{{.CAID}}">{{.DisplayPath}}</option>{{end}}
+            <select id="i_parent" name="parent" data-passphrase="i_parentpass">
+              {{range $ca.ParentOptions}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}
             </select>
             <p class="muted" style="font-size:13px">Only the root and intermediates created with "Allow sub-CAs" are listed.</p>
           </div>
         </div>
         <label><input type="checkbox" name="allow_sub" style="width:auto;margin-right:8px"> Allow sub-CAs (can sign intermediates; if unchecked, can only sign leaf certificates)</label>
-        <label for="i_parentpass">Parent CA passphrase (if the parent key is protected)</label>
-        <input id="i_parentpass" name="parent_passphrase" type="password" placeholder="Leave empty if parent key is unencrypted" autocomplete="off">
+        <label for="i_parentpass">Parent CA passphrase</label>
+        <input id="i_parentpass" name="parent_passphrase" type="password" autocomplete="off">
         <div class="row">
           <div>
             <label for="i_pass">New passphrase for this intermediate (optional)</label>

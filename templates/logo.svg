@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Trust tree: root, intermediate, three leaf certificates. -->
+  <g fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round">
+    <path d="M32 16 V34"/><path d="M32 34 L16 48"/><path d="M32 34 L48 48"/><path d="M32 34 V52"/>
+  </g>
+  <circle cx="32" cy="11" r="7" fill="#38bdf8"/>
+  <circle cx="32" cy="34" r="5.5" fill="#38bdf8"/>
+  <circle cx="14" cy="50" r="5" fill="#34d399"/><circle cx="32" cy="54" r="5" fill="#34d399"/><circle cx="50" cy="50" r="5" fill="#34d399"/>
+</svg>

@@ -303,10 +303,20 @@ func userFromContext(ctx context.Context) (User, bool) {
 
 // --- middleware -----------------------------------------------------------
 
+// isPublicPath reports whether a path is served without login: the health
+// probe and the logo, which the login page and favicon need.
+func isPublicPath(path string) bool {
+	switch path {
+	case "/healthz", "/logo.svg", "/favicon.ico":
+		return true
+	}
+	return false
+}
+
 // Middleware enforces authentication and role-based access.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.enabled || r.URL.Path == "/healthz" {
+		if !a.enabled || isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -353,6 +363,9 @@ func requiresAdmin(method, path string) bool {
 	// Managing certificate templates is admin-only.
 	if strings.HasPrefix(path, "/templates") {
 		return true
+	}
+	if strings.HasPrefix(path, "/tools/") && !strings.HasSuffix(path, "/download") {
+		return false
 	}
 	// Private key downloads: /download/<serial>/key (but not /download/ca/...).
 	if method == http.MethodGet &&

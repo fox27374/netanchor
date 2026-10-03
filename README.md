@@ -53,6 +53,12 @@ PKCS#12 encoder. Everything else uses the standard library:
   Keychain, or Java keystores.
 - **Dashboard** with one-click downloads: cert, key (admin only), and full
   chain (leaf + intermediate + root)
+- **Tools inspector & converter** — paste PEM or upload PEM, DER, PKCS#7, or
+  PKCS#12 to inspect certificates, CSRs, and private-key metadata. Convert
+  certificates and CSRs to PEM/DER, certificate bundles to PEM/PKCS#7, and
+  (for admins) private keys to PEM/DER or matching cert + key + chain to
+  password-protected PKCS#12. Inputs are not stored on disk; results expire
+  from memory after ten minutes.
 
 Everything is stored under the data directory as PEM/JSON. Downloaded **leaf**
 private keys are always standard, unencrypted PKCS#8 so other tools (nginx,
@@ -108,9 +114,9 @@ Raspberry Pi 3/4/5 and ARM servers), and **`linux/arm/v7`** (32-bit Pi / older
 ARM). Podman or Docker automatically pull the variant matching your machine:
 
 ```sh
-podman pull ghcr.io/fox27374/netanchor:1.3.3
+podman pull ghcr.io/fox27374/netanchor:1.4.0
 podman run -d --name netanchor -p 8443:8443 -v netanchor-data:/data \
-  ghcr.io/fox27374/netanchor:1.3.3
+  ghcr.io/fox27374/netanchor:1.4.0
 ```
 
 On a Raspberry Pi this is the only command you need — no building required.
@@ -119,12 +125,12 @@ On a Raspberry Pi this is the only command you need — no building required.
 Push a version tag and it builds all three arches and pushes the manifest:
 
 ```sh
-git tag v1.3.3
-git push origin v1.3.3
+git tag v1.4.0
+git push origin v1.4.0
 ```
 
 The workflow authenticates with the built-in `GITHUB_TOKEN` (no secrets to
-configure) and publishes `:1.3.3`, `:1.3`, `:1`, and `:latest`. After the first
+configure) and publishes `:1.4.0`, `:1.4`, `:1`, and `:latest`. After the first
 publish, make the package public under the repo's *Packages* settings if you
 want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 (fast); only the tiny user-creation step in the runtime stage runs under QEMU.
@@ -133,11 +139,11 @@ want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 Podman:
 
 ```sh
-podman manifest create netanchor:1.3.3
+podman manifest create netanchor:1.4.0
 podman build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  --manifest netanchor:1.3.3 --build-arg VERSION=1.3.3 -f Containerfile .
-podman manifest push --all netanchor:1.3.3 \
-  docker://ghcr.io/fox27374/netanchor:1.3.3
+  --manifest netanchor:1.4.0 --build-arg VERSION=1.4.0 -f Containerfile .
+podman manifest push --all netanchor:1.4.0 \
+  docker://ghcr.io/fox27374/netanchor:1.4.0
 ```
 
 ### Why a volume (and not a database)?
