@@ -330,6 +330,98 @@ func TestToolsPKCS12ExportRoundTrip(t *testing.T) {
 	}
 }
 
+func TestToolsPasswordPreflight(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "preflight.example"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected, err := pkcs12.Modern.Encode(key, cert, nil, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordless, err := pkcs12.Passwordless.Encode(key, cert, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustStore, err := pkcs12.Passwordless.EncodeTrustStore([]*x509.Certificate{cert}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := auth.Middleware(NewServer(store, auth).Routes())
+	for _, tc := range []struct {
+		name, state string
+		data        []byte
+	}{
+		{"protected", "required", protected},
+		{"passwordless", "not-required", passwordless},
+		{"passwordless-trust-store", "not-required", trustStore},
+		{"invalid", "unknown", []byte("not a PKCS#12 file")},
+		{"malformed-pfx-shaped", "unknown", []byte{0x30, 0x03, 0x02, 0x01, 0x03}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body bytes.Buffer
+			mw := multipart.NewWriter(&body)
+			file, err := mw.CreateFormFile("file", "input.p12")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.Write(tc.data); err != nil {
+				t.Fatal(err)
+			}
+			if err := mw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequest(http.MethodPost, "/tools/check-password", &body)
+			r.Header.Set("Content-Type", mw.FormDataContentType())
+			r.Header.Set("Origin", "http://example.test")
+			r.Host = "example.test"
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"state":"`+tc.state+`"`) {
+				t.Fatalf("preflight status=%d body=%s, want %s", w.Code, w.Body.String(), tc.state)
+			}
+		})
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	file, err := mw.CreateFormFile("file", "protected.p12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(protected); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/tools", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("Origin", "http://example.test")
+	r.Host = "example.test"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "This PKCS#12 file is password-protected") || strings.Contains(w.Body.String(), "DER input could not be decoded") {
+		t.Fatalf("missing password status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func multipartToolsRequest(t *testing.T, fileParts int, pasted string) *http.Request {
 	t.Helper()
 	var body bytes.Buffer

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -73,6 +74,93 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	d := s.base(r, "Tools", "tools")
 	s.render(w, "tools", d)
+}
+
+// handleToolsPasswordCheck checks uploaded content without retaining or logging it.
+func (s *Server) handleToolsPasswordCheck(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if !validToolsOrigin(r) {
+		http.Error(w, "cross-origin request denied", http.StatusForbidden)
+		return
+	}
+	const maxRequest = toolsMaxUpload + (1 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequest)
+	if err := r.ParseMultipartForm(maxRequest); err != nil || r.MultipartForm == nil {
+		http.Error(w, "upload is too large or invalid", http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	files := r.MultipartForm.File["file"]
+	if len(files) != 1 || len(r.MultipartForm.File) != 1 {
+		http.Error(w, "upload exactly one file", http.StatusBadRequest)
+		return
+	}
+	file, err := files[0].Open()
+	if err != nil {
+		http.Error(w, "invalid uploaded file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, toolsMaxUpload+1))
+	if err != nil || len(data) > toolsMaxUpload {
+		http.Error(w, "upload is too large", http.StatusBadRequest)
+		return
+	}
+	state := pkcs12PasswordState(data)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		State string `json:"state"`
+	}{state})
+}
+
+func pkcs12PasswordState(data []byte) string {
+	if _, _, _, err := pkcs12.DecodeChain(data, ""); err == nil {
+		return "not-required"
+	}
+	if certs, err := pkcs12.DecodeTrustStore(data, ""); err == nil && len(certs) > 0 {
+		return "not-required"
+	}
+	// Require a complete PFX containing a valid authenticated-safe payload and
+	// well-formed MAC data before reporting a password requirement. A partial
+	// PFX-looking prefix is unknown, not evidence of protection.
+	var pfx struct {
+		Version  int
+		AuthSafe asn1.RawValue
+		MacData  asn1.RawValue `asn1:"optional"`
+	}
+	if rest, err := asn1.Unmarshal(data, &pfx); err != nil || len(rest) != 0 || pfx.Version != 3 || pfx.AuthSafe.Tag != asn1.TagSequence || pfx.MacData.Tag != asn1.TagSequence {
+		return "unknown"
+	}
+	var contentInfo struct {
+		ContentType asn1.ObjectIdentifier
+		Content     asn1.RawValue `asn1:"tag:0,explicit"`
+	}
+	if rest, err := asn1.Unmarshal(pfx.AuthSafe.FullBytes, &contentInfo); err != nil || len(rest) != 0 || !contentInfo.ContentType.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}) {
+		return "unknown"
+	}
+	var octets asn1.RawValue
+	if rest, err := asn1.Unmarshal(contentInfo.Content.Bytes, &octets); err != nil || len(rest) != 0 || octets.Tag != asn1.TagOctetString {
+		return "unknown"
+	}
+	var safe asn1.RawValue
+	if rest, err := asn1.Unmarshal(octets.Bytes, &safe); err != nil || len(rest) != 0 || safe.Tag != asn1.TagSequence {
+		return "unknown"
+	}
+	var mac struct {
+		Digest struct {
+			Algorithm struct {
+				OID    asn1.ObjectIdentifier
+				Params asn1.RawValue `asn1:"optional"`
+			}
+			Value []byte
+		}
+		Salt       []byte
+		Iterations int `asn1:"optional,default:1"`
+	}
+	if rest, err := asn1.Unmarshal(pfx.MacData.FullBytes, &mac); err != nil || len(rest) != 0 || len(mac.Digest.Algorithm.OID) == 0 || len(mac.Digest.Value) == 0 || len(mac.Salt) == 0 || mac.Iterations < 1 {
+		return "unknown"
+	}
+	return "required"
 }
 func (s *Server) handleToolsDecode(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
@@ -141,7 +229,9 @@ func (s *Server) handleToolsDecode(w http.ResponseWriter, r *http.Request) {
 	items, warnings := decodeToolInput(data, r.FormValue("password"))
 	if len(items) == 0 {
 		msg := "No supported certificates, CSRs, or private keys were found. Check the input format and password."
-		if len(warnings) > 0 {
+		if len(data) > 0 && pkcs12PasswordState(data) == "required" && strings.TrimSpace(r.FormValue("password")) == "" {
+			msg = "This PKCS#12 file is password-protected. Enter its password and try again."
+		} else if len(warnings) > 0 {
 			msg += " " + strings.Join(warnings, " ")
 		}
 		s.renderToolError(w, r, msg)

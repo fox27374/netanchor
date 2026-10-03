@@ -56,6 +56,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /tools", s.handleTools)
 	mux.HandleFunc("POST /tools", s.handleToolsDecode)
+	mux.HandleFunc("POST /tools/check-password", s.handleToolsPasswordCheck)
 	mux.HandleFunc("GET /tools/{token}", s.handleToolsResult)
 	mux.HandleFunc("POST /tools/{token}/download", s.handleToolsDownload)
 	mux.HandleFunc("GET /ca", s.handleCA)
