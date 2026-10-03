@@ -1,6 +1,9 @@
 name: Delete older container images
 
 on:
+  workflow_run:
+    workflows: [Publish container image]
+    types: [completed]
   workflow_dispatch:
     inputs:
       keep_tag:
@@ -14,6 +17,11 @@ permissions:
 
 jobs:
   cleanup:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-26.04
     steps:
       - name: Set up Docker Buildx
@@ -30,10 +38,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
-          KEEP_TAG: ${{ inputs.keep_tag }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.keep_tag || github.event.workflow_run.head_branch }}
         shell: bash
         run: |
           set -euo pipefail
+          KEEP_TAG="${RELEASE_TAG#v}"
           api="/users/$OWNER/packages/container/netanchor/versions"
           versions=$(gh api --paginate "$api?per_page=100" --jq '.[] | [.id, .name, (.metadata.container.tags | join(","))] | @tsv')
           [[ -n "$versions" ]] || { echo 'No package versions found'; exit 1; }
