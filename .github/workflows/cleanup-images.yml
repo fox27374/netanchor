@@ -1,0 +1,75 @@
+name: Delete older container images
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_tag:
+        description: Published image tag to keep (must be the newest version)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete versions not used by the newest image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          KEEP_TAG: ${{ inputs.keep_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="/users/$OWNER/packages/container/netanchor/versions"
+          versions=$(gh api --paginate "$api?per_page=100" --jq '.[] | [.id, .name, (.metadata.container.tags | join(","))] | @tsv')
+          [[ -n "$versions" ]] || { echo 'No package versions found'; exit 1; }
+
+          IFS=$'\t' read -r latest_id latest_digest latest_tags <<< "${versions%%$'\n'*}"
+          [[ ",$latest_tags," == *",$KEEP_TAG,"* ]] || {
+            echo "Tag $KEEP_TAG is not on the newest image; refusing to delete versions"
+            exit 1
+          }
+
+          # The tagged version is a multi-platform index. Preserve its exact
+          # child digests too, even though GitHub lists them as untagged versions.
+          keep=$(docker buildx imagetools inspect --raw "ghcr.io/$OWNER/netanchor:$KEEP_TAG" |
+            jq -c --arg top "$latest_digest" '[.manifests[].digest] + [$top] | unique')
+          [[ $(jq 'length' <<< "$keep") -gt 1 ]] || { echo 'No platform manifests found'; exit 1; }
+
+          mapfile -t rows <<< "$versions"
+          found=0
+          for row in "${rows[@]}"; do
+            IFS=$'\t' read -r id digest tags <<< "$row"
+            if jq -e --arg digest "$digest" 'index($digest) != null' <<< "$keep" >/dev/null; then
+              ((found+=1))
+            fi
+          done
+          [[ $found -eq $(jq 'length' <<< "$keep") ]] || {
+            echo 'Not all platform manifests are present in the package; refusing to delete versions'
+            exit 1
+          }
+
+          # Delete from oldest to newest, leaving the selected index and every
+          # platform it references untouched.
+          for ((i=${#rows[@]}-1; i>=0; i--)); do
+            IFS=$'\t' read -r id digest tags <<< "${rows[i]}"
+            if jq -e --arg digest "$digest" 'index($digest) != null' <<< "$keep" >/dev/null; then
+              continue
+            fi
+            echo "Deleting package version $id ($digest)"
+            gh api -X DELETE "$api/$id"
+          done
