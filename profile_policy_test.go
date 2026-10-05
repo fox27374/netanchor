@@ -407,16 +407,37 @@ func TestIssueSignAndTemplateEditHTTP(t *testing.T) {
 	issueReq := httptest.NewRequest("POST", "/issue", strings.NewReader(issueBody.Encode()))
 	issueReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	handler.ServeHTTP(issue, issueReq)
-	if !strings.Contains(issue.Body.String(), "Certificate issued") {
-		t.Fatalf("issue form didn't bind selected template: %s", issue.Body.String())
+	if issue.Code != http.StatusSeeOther || issue.Header().Get("Location") != "/" {
+		t.Fatalf("issue form didn't redirect to dashboard: %d %s", issue.Code, issue.Body.String())
+	}
+	var flash *http.Cookie
+	for _, cookie := range issue.Result().Cookies() {
+		if cookie.Name == issueFlashCookie {
+			flash = cookie
+		}
+	}
+	if flash == nil || !flash.HttpOnly || flash.Path != "/" || strings.Contains(flash.Value, "web") {
+		t.Fatalf("issue flash cookie invalid: %+v", flash)
+	}
+	dashboardReq := httptest.NewRequest("GET", "/", nil)
+	dashboardReq.AddCookie(flash)
+	issuedDashboard := httptest.NewRecorder()
+	handler.ServeHTTP(issuedDashboard, dashboardReq)
+	if !strings.Contains(issuedDashboard.Body.String(), "Certificate issued") || !strings.Contains(issuedDashboard.Body.String(), "Dismiss notification") || !strings.Contains(issuedDashboard.Body.String(), "/cert/") {
+		t.Fatalf("dashboard missing issued certificate or notice: %s", issuedDashboard.Body.String())
+	}
+	again := httptest.NewRecorder()
+	handler.ServeHTTP(again, dashboardReq)
+	if strings.Contains(again.Body.String(), "Certificate issued") {
+		t.Fatal("dashboard replayed issuance notice")
 	}
 	defaults := url.Values{"template": {"builtin:TLS-Server"}, "common_name": {"default-web"}, "dns_sans": {"default.example"}, "issuer": {"root"}}
 	defaultReq := httptest.NewRequest("POST", "/issue", strings.NewReader(defaults.Encode()))
 	defaultReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	defaultResp := httptest.NewRecorder()
 	handler.ServeHTTP(defaultResp, defaultReq)
-	if !strings.Contains(defaultResp.Body.String(), "Certificate issued") {
-		t.Fatalf("profile defaults unavailable without JavaScript: %s", defaultResp.Body.String())
+	if defaultResp.Code != http.StatusSeeOther || defaultResp.Header().Get("Location") != "/" {
+		t.Fatalf("profile defaults unavailable without JavaScript: %d %s", defaultResp.Code, defaultResp.Body.String())
 	}
 	all, err := s.Records()
 	if err != nil {

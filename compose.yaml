@@ -12,17 +12,20 @@ services:
   netanchor:
     # Pull the published multi-arch image from GHCR (amd64 / arm64 / armv7 are
     # selected automatically). To build locally instead, see the Containerfile.
-    image: ghcr.io/fox27374/netanchor:1.4.2
+    image: ghcr.io/fox27374/netanchor:1.5.0
     container_name: netanchor
     restart: unless-stopped
 
     ports:
       - "8443:8443"
+      # - "8080:8080" # optional SCEP-only HTTP
 
     environment:
       # Bind to all interfaces inside the container (reached via the published port).
       NETANCHOR_ADDR: "0.0.0.0:8443"
       NETANCHOR_DATA: "/data"
+      # NETANCHOR_SCEP_ADDR: "0.0.0.0:8080"
+      # NETANCHOR_SCEP_SECRET_FILE: "/run/secrets/scep-passphrase"
       # TLS is on by default. List every name/IP clients will use so they appear
       # in the auto-generated server certificate's SANs.
       NETANCHOR_TLS_HOSTS: "localhost,127.0.0.1"
@@ -34,6 +37,8 @@ services:
       # Named volume holds the CA(s), issued certs, TLS server cert,
       # session-signing key, and users.json.
       - netanchor-data:/data
+      # Optional startup unlock; host file must be readable by uid 65532.
+      # - ./scep-passphrase:/run/secrets/scep-passphrase:ro,Z
 
     # The image already runs as non-root (uid 65532); this enforces it at runtime.
     user: "65532:65532"

@@ -160,12 +160,16 @@ type IntermediateParams struct {
 	ParentPassphrase string // unlocks the parent key if it is encrypted
 	Passphrase       string // optional; encrypts the new intermediate key at rest
 	AllowSubCAs      bool   // if true, MaxPathLen = -1 (unconstrained); if false, MaxPathLen = 0
+	SCEP             bool   // dedicated RSA, encryption-capable, leaf-only intermediate
 }
 
 // CreateIntermediate creates an intermediate CA signed by a parent (root or another intermediate).
 // The intermediate can optionally allow sub-CAs (AllowSubCAs=false => MaxPathLen=0 => leaf-only;
 // AllowSubCAs=true => MaxPathLen=-1 => unconstrained).
 func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
+	if p.SCEP && (p.AllowSubCAs || (p.Algo != algoRSA2048 && p.Algo != algoRSA4096)) {
+		return CertRecord{}, errors.New("SCEP requires a leaf-only RSA intermediate")
+	}
 	if p.CommonName == "" {
 		return CertRecord{}, errors.New("common name is required")
 	}
@@ -215,6 +219,9 @@ func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 	}
 
+	if p.SCEP {
+		tmpl.KeyUsage |= x509.KeyUsageKeyEncipherment
+	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, parentCert, key.Public(), parentKey)
 	if err != nil {
 		return CertRecord{}, err
@@ -430,32 +437,48 @@ func SignCSR(s *Store, p SignCSRParams) (CertRecord, error) {
 	if err != nil {
 		return CertRecord{}, fmt.Errorf("parsing CSR: %w", err)
 	}
-	if err := csr.CheckSignature(); err != nil {
-		return CertRecord{}, fmt.Errorf("CSR signature is invalid: %w", err)
-	}
 	if p.IssuerID == "" || !s.ValidCAID(p.IssuerID) {
 		return CertRecord{}, errors.New("select a valid issuing CA")
 	}
-	if p.Template.Name != "" {
-		if err := validateCSRPolicy(csr, p.Template, normalizeIssuer(s, p.IssuerID), p.ValidDays); err != nil {
-			return CertRecord{}, err
-		}
-	}
-
-	issuer := normalizeIssuer(s, p.IssuerID)
-	caCert, caKey, err := loadCA(s, issuer, p.CAPassphrase)
+	caCert, caKey, err := loadCA(s, p.IssuerID, p.CAPassphrase)
 	if err != nil {
 		return CertRecord{}, err
+	}
+	rec, der, err := signCSRWithoutPersistence(csr, p, caCert, caKey, false)
+	if err != nil {
+		return CertRecord{}, err
+	}
+	if err := s.SaveCert(rec.Serial, encodeCertPEM(der), nil); err != nil {
+		return CertRecord{}, err
+	}
+	return rec, s.AddRecord(rec)
+}
+
+// signCSRWithoutPersistence validates and signs the supplied CSR fields. It does
+// not load a key, replace identities, or write storage. Callers own authorization
+// and persistence: the UI saves immediately; SCEP explicitly substitutes its
+// authorized SANs on a copy and commits DER + metadata in its durable journal.
+func signCSRWithoutPersistence(csr *x509.CertificateRequest, p SignCSRParams, caCert *x509.Certificate, caKey crypto.Signer, boundExpiry bool) (CertRecord, []byte, error) {
+	if caCert == nil || caKey == nil || csr == nil {
+		return CertRecord{}, nil, errors.New("CSR, issuing certificate and key are required")
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return CertRecord{}, nil, fmt.Errorf("CSR signature is invalid: %w", err)
+	}
+	if p.Template.Name != "" {
+		if err := validateCSRPolicy(csr, p.Template, p.IssuerID, p.ValidDays); err != nil {
+			return CertRecord{}, nil, err
+		}
 	}
 	if p.Template.Name != "" {
 		a, ok := publicKeyAlgo(csr.PublicKey)
 		if !ok || !allowedAlgo(p.Template, a) {
-			return CertRecord{}, errors.New("CSR public-key algorithm is not allowed by this template")
+			return CertRecord{}, nil, errors.New("CSR public-key algorithm is not allowed by this template")
 		}
 	}
 	serial, err := randSerial()
 	if err != nil {
-		return CertRecord{}, err
+		return CertRecord{}, nil, err
 	}
 
 	now := time.Now()
@@ -475,20 +498,22 @@ func SignCSR(s *Store, p SignCSRParams) (CertRecord, error) {
 	if p.Template.Name != "" {
 		tmpl.ExtKeyUsage = extKeyUsage(p.Template.Profile)
 		tmpl.KeyUsage = profileKeyUsage(p.Template.Profile, publicKeyAlgoValue(csr.PublicKey))
+		if boundExpiry && tmpl.NotAfter.After(caCert.NotAfter) {
+			tmpl.NotAfter = caCert.NotAfter
+		}
 		if tmpl.NotAfter.After(caCert.NotAfter) {
-			return CertRecord{}, errors.New("requested validity exceeds issuing CA expiration")
+			return CertRecord{}, nil, errors.New("requested validity exceeds issuing CA expiration")
+		}
+		if !tmpl.NotAfter.After(now) {
+			return CertRecord{}, nil, errors.New("issuing CA has expired")
 		}
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, csr.PublicKey, caKey)
 	if err != nil {
-		return CertRecord{}, err
+		return CertRecord{}, nil, err
 	}
 	ser := serialString(serial)
-	if err := s.SaveCert(ser, encodeCertPEM(der), nil); err != nil {
-		return CertRecord{}, err
-	}
-
 	cn := csr.Subject.CommonName
 	if cn == "" && len(csr.DNSNames) > 0 {
 		cn = csr.DNSNames[0]
@@ -497,14 +522,14 @@ func SignCSR(s *Store, p SignCSRParams) (CertRecord, error) {
 		Serial:       ser,
 		CommonName:   cn,
 		Kind:         "csr",
-		IssuerID:     issuer,
+		IssuerID:     p.IssuerID,
 		NotBefore:    tmpl.NotBefore,
 		NotAfter:     tmpl.NotAfter,
 		HasKey:       false,
 		CreatedAt:    now,
 		TemplateName: p.TemplateName, TemplatePolicy: p.Template,
 	}
-	return rec, s.AddRecord(rec)
+	return rec, der, nil
 }
 
 // normalizeIssuer validates a CA id (root, legacy intermediate, or serial hex).

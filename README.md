@@ -1,9 +1,9 @@
 # NetAnchor
 
 A simple, web-based certificate authority written in Go — single static binary.
-It is standard-library-only except for **one** small dependency
-(`software.sslmate.com/src/go-pkcs12`, pure Go, no cgo) because the stdlib has no
-PKCS#12 encoder. Everything else uses the standard library:
+It uses pure-Go libraries for PKCS#12 (`software.sslmate.com/src/go-pkcs12`)
+and SCEP/CMS (`github.com/smallstep/scep` and `github.com/smallstep/pkcs7`),
+with no cgo. The rest uses the standard library:
 
 - `net/http` (Go 1.22+ method/pattern routing) for the web GUI
 - `crypto/x509`, `crypto/ecdsa`, `crypto/rsa` for the PKI work
@@ -27,6 +27,9 @@ PKCS#12 encoder. Everything else uses the standard library:
   Subject Alternative Names (DNS + IP, auto-detected) and server/client/both profiles
 - **Sign CSRs** — paste PEM or upload a file; the request signature is verified
   before signing, and the requester keeps their own private key
+- **SCEP enrollment** — immediate switch HTTPS/gNMI serverAuth certificates,
+  with dedicated RSA intermediate, administrator-authorized SANs, expiring
+  single-use challenges, and durable same-request retries. See limitations below.
 - **Passphrase protection** — optionally encrypt a CA's private key at rest
   (PBKDF2-SHA256 + AES-256-GCM). The passphrase is then required to issue or sign
   with that CA.
@@ -92,6 +95,141 @@ the admin account.
 |         | `NETANCHOR_TLS_HOSTS`     | `localhost,127.0.0.1` | SANs for the auto-generated server certificate |
 |         | `NETANCHOR_CA_PASSPHRASE` | —                  | Unlocks an encrypted root so the server cert can be issued by it at startup |
 |         | `NETANCHOR_DISABLE_AUTH`  | —                  | Set to `1` to disable login (trusted local use only) |
+|         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
+|         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
+
+## SCEP for switch HTTPS and gNMI
+
+### Setup and bootstrap
+
+1. On **CA**, create an intermediate with **Dedicated SCEP intermediate** checked,
+   RSA 2048 or 4096, and **Allow sub-CAs** unchecked. This adds certSign,
+   crlSign, digitalSignature and keyEncipherment. Existing ordinary intermediates
+   cannot gain the missing usage without reissuance.
+2. On the admin-only **SCEP** page, select and unlock that intermediate. Only one
+   is active. The key stays in process memory until locked or restarted. Locked,
+   expired, or deleted issuers cannot enroll; a deleted selected CA is not replaced
+   automatically. GetCACert/GetCACaps remain available while locked.
+3. Verify the selected intermediate's **SHA-256 fingerprint out of band**, from
+   the authenticated SCEP/CA details page or a trusted downloaded certificate:
+   `openssl x509 -in scep-ca.pem -noout -fingerprint -sha256`. Also verify the
+   root trust anchor. Compare these against the certificates received by the
+   switch before accepting its bootstrap authentication prompt. GetCACert and
+   GetCACaps are unauthenticated; HTTP CMS protection depends on this bootstrap.
+4. Create a challenge bound to that CA, a TLS server profile, and the exact DNS/IP
+   SANs used to connect to the switch. Copy the random secret from the one-time
+   response. Only its SHA-256 hash is persisted; losing it requires a new challenge.
+   Unused challenges can be revoked in the UI.
+5. Enroll using `/scep`, `/scep/cgi-bin/pkiclient.exe`, or
+   `/cgi-bin/pkiclient.exe`. The normal GUI listener also serves these public
+   protocol paths. The optional `NETANCHOR_SCEP_ADDR` listener is plain HTTP and
+   serves **only SCEP**, never the UI, setup, login, admin routes, or health probe.
+
+The challenge defaults to 24 hours and has a seven-day maximum. Certificate
+validity defaults to 365 days, capped by the profile maximum and the entire
+issuer chain's expiry. The profile is snapshotted at challenge creation; later
+profile edits do not alter outstanding authorization (revoke and recreate it).
+Issued SANs are **exactly the administrator-authorized DNS/IP identities**, even
+when absent or partial in the CSR. Extra SANs, email/URI SANs, CA privileges,
+conflicting EKUs, invalid signatures and keys outside the profile are rejected.
+The CSR subject/CN is retained, but is not used to authorize SANs. Issuances stay
+`kind=csr` with `provenance=scep` and a dashboard badge; device keys never leave
+the device.
+
+### Runtime and deployment
+
+For an additional switch-facing port, set `NETANCHOR_SCEP_ADDR=0.0.0.0:8080`
+and publish `8080:8080` alongside the GUI's `8443:8443`. `compose.yaml` includes
+commented listener/port/secret-mount examples. SCEP is included starting with
+version 1.5.0.
+For the designated remote container host, the parent deployment can use
+`podhost <build/run command>` to run on `ataltpr06.lnxnet.org`.
+
+Without `NETANCHOR_SCEP_SECRET_FILE`, each restart requires an explicit UI unlock,
+even for an unencrypted CA key. To auto-unlock, mount a file read-only, readable
+by container uid 65532, and set the variable to its **container path**, e.g.
+`/run/secrets/scep-passphrase`. An empty file unlocks an unencrypted key. Selection
+persists in `/data/scep.json`; the passphrase does not. Missing/wrong secrets or
+recovery errors leave enrollment locked and log a startup error; the UI remains
+available to repair/unlock it. Locking in the UI is an in-memory action; remove
+the startup secret configuration if it must remain locked after restart.
+
+Run exactly **one process per data directory**, on a local filesystem supporting
+atomic rename and fsync. SCEP serializes enrollment/deletion within that process.
+Its fsynced, atomically replaced journal commits the certificate and token
+consumption together before publishing PEM/index files or returning success.
+If publication fails, the request receives HTTP 503; repair storage and retry.
+Startup or a later valid request completes the same committed issuance, without
+minting another certificate. Back up `scep.json` together with the rest of the
+data directory while stopped; do not restore the journal independently.
+CA/certificate deletion first completes pending journal projections, including
+PEMs whose index update failed; if reconciliation fails, deletion aborts before
+moving files. A missing or unreadable CA is never interpreted as proof of deletion:
+its committed pending issuances remain recoverable after storage is restored.
+
+Authenticated retries with the **same challenge, transaction ID, exact CSR DER,
+and signer certificate** return the same certificate for seven days after
+issuance (the response envelope/nonce can differ). A different request cannot
+reuse a spent challenge. Deleted certificates are not resurrected by retries.
+Expired/used challenge entries are pruned when creating another challenge,
+seven days after expiry/use; unused revoked entries follow their original
+expiry. At most 10,000 entries are retained; unfinished committed publications
+are retained until recovered. Issued PEMs/index records follow normal certificate
+retention and are not removed by challenge cleanup.
+
+### Cisco configuration sketch — **unverified on hardware**
+
+Adapt hostnames, SANs, ports and commands to the exact switch image. This is a
+starting point, **not verified IOS-XE 16.x interoperability**. A general-purpose
+RSA keypair avoids separate signing/encryption-key enrollments:
+
+```text
+crypto key generate rsa general-keys label SWITCH-TLS modulus 2048
+crypto pki trustpoint NETANCHOR
+ enrollment url http://pki.example.net:8080/scep
+ subject-name CN=switch.example.net
+ fqdn switch.example.net
+ ip-address 192.0.2.10
+ rsakeypair SWITCH-TLS
+ hash sha256
+ password <ONE-TIME-CHALLENGE>
+exit
+crypto pki authenticate NETANCHOR
+! Verify downloaded CA fingerprints out of band before accepting.
+crypto pki enroll NETANCHOR
+ip http secure-trustpoint NETANCHOR
+ip http secure-server
+! IOS-XE 16.8.1 through 17.2.x (platform-dependent):
+gnmi-yang secure-trustpoint NETANCHOR
+! On 17.3.1+ use the image's gnxi secure-trustpoint NETANCHOR selector instead.
+```
+
+Remove the challenge password from switch configuration after enrollment. Configure
+gNMI service enablement, authorization and optional client authentication according
+to the platform guide; the trustpoint only selects the server identity. Verify
+both HTTPS and gNMI actually present the new leaf and intermediate chain, with
+serverAuth and the intended DNS/IP SANs; verify service reload behavior on your image.
+
+Only **AES-128-CBC content encryption, RSA PKCS#1 v1.5 key transport, and SHA-256
+RSA CMS signatures** are accepted. DES, 3DES, SHA-1/MD5 CMS signatures and other
+content algorithms are rejected; there is no downgrade. Setting Cisco `hash sha256`
+does not prove that its SCEP CMS layer supports this policy. Clients must send one
+self-signed RSA signer certificate matching the CSR key and one envelope recipient.
+Requests are limited to 1 MiB (decoded), with one challengePassword attribute.
+CMS framing must use definite, minimal ASN.1 lengths and low-numbered tags;
+indefinite BER is rejected. Before library parsing, an allocation-free iterative
+preflight enforces 32 levels, 8,192 elements, and 8 MiB cumulative encoded lengths
+(bounding recursive conversion/copying work). It runs before the enrollment state
+lock, with an independent check for the embedded CMS envelope.
+The smallstep CBC dependency is protected by envelope/key-length/padding checks
+before its panic-prone unpadding path and a defensive parse/decrypt panic boundary.
+
+Supported operations: GetCACaps, GetCACert, PKIOperation via GET or POST, and
+immediate PKCSReq success/failure. No approval queue, PENDING, polling, renewal,
+GetNextCACert, CRL/OCSP, certificate revocation, or automated device service reload.
+Re-enrollment requires a new challenge. Older Cisco SAN emission, AES support,
+chain handling and HTTPS/gNMI reuse remain unverified; see [RESEARCH-SCEP.md](RESEARCH-SCEP.md)
+for source references and release-specific uncertainties.
 
 ## Run in a container (Podman)
 
@@ -117,9 +255,9 @@ Raspberry Pi 3/4/5 and ARM servers), and **`linux/arm/v7`** (32-bit Pi / older
 ARM). Podman or Docker automatically pull the variant matching your machine:
 
 ```sh
-podman pull ghcr.io/fox27374/netanchor:1.4.2
+podman pull ghcr.io/fox27374/netanchor:1.5.0
 podman run -d --name netanchor -p 8443:8443 -v netanchor-data:/data \
-  ghcr.io/fox27374/netanchor:1.4.2
+  ghcr.io/fox27374/netanchor:1.5.0
 ```
 
 On a Raspberry Pi this is the only command you need — no building required.
@@ -128,12 +266,12 @@ On a Raspberry Pi this is the only command you need — no building required.
 Push a version tag and it builds all three arches and pushes the manifest:
 
 ```sh
-git tag v1.4.2
-git push origin v1.4.2
+git tag v1.5.0
+git push origin v1.5.0
 ```
 
 The workflow authenticates with the built-in `GITHUB_TOKEN` (no secrets to
-configure) and publishes `:1.4.2`, `:1.4`, `:1`, and `:latest`. After the first
+configure) and publishes `:1.5.0`, `:1.5`, `:1`, and `:latest`. After the first
 publish, make the package public under the repo's *Packages* settings if you
 want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 (fast); only the tiny user-creation step in the runtime stage runs under QEMU.
@@ -142,11 +280,11 @@ want unauthenticated pulls. The Go binary is cross-compiled natively per arch
 Podman:
 
 ```sh
-podman manifest create netanchor:1.4.2
+podman manifest create netanchor:1.5.0
 podman build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  --manifest netanchor:1.4.2 --build-arg VERSION=1.4.2 -f Containerfile .
-podman manifest push --all netanchor:1.4.2 \
-  docker://ghcr.io/fox27374/netanchor:1.4.2
+  --manifest netanchor:1.5.0 --build-arg VERSION=1.5.0 -f Containerfile .
+podman manifest push --all netanchor:1.5.0 \
+  docker://ghcr.io/fox27374/netanchor:1.5.0
 ```
 
 ### Why a volume (and not a database)?
@@ -255,6 +393,9 @@ a passphrase; there is no recovery if you forget it.
 | `certinfo.go`  | Parsing a cert into a details view                          |
 | `store.go`     | File-backed persistence + metadata index                    |
 | `server.go`    | HTTP routes, handlers, template rendering                    |
+| `scep_protocol.go` | SCEP/CMS policy checks, enrollment and protocol HTTP routes |
+| `scep_store.go` | CA unlock state, challenge journal and issuance recovery |
+| `scep_admin.go` | Admin-only SCEP selection, lock and challenge UI |
 | `templates/`   | Embedded HTML UI                                             |
 | `Containerfile`| Multi-stage build → static binary on Alpine, non-root       |
 | `k8s/`         | Kustomize base: Deployment, PVC, Service, Gateway API Gateway + HTTPRoute |

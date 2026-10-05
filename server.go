@@ -33,9 +33,13 @@ type Server struct {
 	templates map[string]*template.Template
 	flashMu   sync.Mutex
 	flashes   map[string]caFlash
+	scep      *SCEPService
 }
 
-const caFlashCookie = "netanchor_ca_flash"
+const (
+	caFlashCookie    = "netanchor_ca_flash"
+	issueFlashCookie = "netanchor_issue_flash"
+)
 
 type caFlash struct {
 	Title, Body string
@@ -43,7 +47,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -56,11 +60,16 @@ func NewServer(store *Store, auth *Auth) *Server {
 		}}).ParseFS(
 			templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
-	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash)}
+	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash), scep: newSCEPService(store)}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	for _, path := range scepPaths {
+		mux.Handle(path, s.scep.Routes())
+	}
+	mux.HandleFunc("GET /admin/scep", s.handleSCEPAdmin)
+	mux.HandleFunc("POST /admin/scep/{action}", s.handleSCEPAdmin)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /tools", s.handleTools)
 	mux.HandleFunc("POST /tools", s.handleToolsDecode)
@@ -148,7 +157,7 @@ type pageData struct {
 	Active          string
 	Error           string
 	Message         string
-	CAFlash         *caFlash
+	Flash           *caFlash
 	Data            any
 
 	// For issue/sign forms: list of CAs that can issue certs (by CAID and DisplayPath)
@@ -240,6 +249,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		paths[ca.ID] = ca.Path
 	}
 	d := s.base(r, "Dashboard", "dashboard")
+	d.Flash = s.takeFlash(w, r, issueFlashCookie, "/")
 	d.Data = struct {
 		Recs  []CertRecord
 		Paths map[string]string // CA id -> "Root › A › B"
@@ -315,13 +325,17 @@ func (s *Server) caData() caViewData {
 func (s *Server) handleCA(w http.ResponseWriter, r *http.Request) {
 	d := s.base(r, "Certificate Authority", "ca")
 	d.Data = s.caData()
-	d.CAFlash = s.takeCAFlash(w, r)
+	d.Flash = s.takeFlash(w, r, caFlashCookie, "/ca")
 	s.render(w, "ca", d)
 }
 
 // CA success messages stay server-side; the browser receives only an opaque,
 // short-lived one-use token. This also keeps the deleted CA name out of URLs.
 func (s *Server) redirectCASuccess(w http.ResponseWriter, r *http.Request, title, body string) {
+	s.redirectSuccess(w, r, title, body, caFlashCookie, "/ca")
+}
+
+func (s *Server) redirectSuccess(w http.ResponseWriter, r *http.Request, title, body, cookieName, path string) {
 	token := make([]byte, 24)
 	if _, err := rand.Read(token); err != nil {
 		s.fail(w, r, err)
@@ -338,19 +352,19 @@ func (s *Server) redirectCASuccess(w http.ResponseWriter, r *http.Request, title
 	s.flashes[key] = caFlash{Title: title, Body: body, Expires: now.Add(2 * time.Minute)}
 	s.flashMu.Unlock()
 	http.SetCookie(w, &http.Cookie{
-		Name: caFlashCookie, Value: key, Path: "/ca", HttpOnly: true,
+		Name: cookieName, Value: key, Path: path, HttpOnly: true,
 		Secure: s.auth.secure, SameSite: http.SameSiteLaxMode, MaxAge: 120,
 	})
-	http.Redirect(w, r, "/ca", http.StatusSeeOther)
+	http.Redirect(w, r, path, http.StatusSeeOther)
 }
 
-func (s *Server) takeCAFlash(w http.ResponseWriter, r *http.Request) *caFlash {
-	cookie, err := r.Cookie(caFlashCookie)
+func (s *Server) takeFlash(w http.ResponseWriter, r *http.Request, cookieName, path string) *caFlash {
+	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		return nil
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: caFlashCookie, Path: "/ca", HttpOnly: true,
+		Name: cookieName, Path: path, HttpOnly: true,
 		Secure: s.auth.secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
 	s.flashMu.Lock()
@@ -389,6 +403,10 @@ func (s *Server) handleCreateRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		s.fail(w, r, err)
 		return
@@ -417,6 +435,7 @@ func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request
 		ParentPassphrase: r.FormValue("parent_passphrase"),
 		Passphrase:       pass,
 		AllowSubCAs:      r.FormValue("allow_sub") == "on",
+		SCEP:             r.FormValue("scep") == "on",
 	}
 	if _, err := CreateIntermediate(s.store, p); err != nil {
 		s.caError(w, r, err.Error())
@@ -498,9 +517,9 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "issue", d)
 		return
 	}
-	s.message(w, r, "Certificate issued",
+	s.redirectSuccess(w, r, "Certificate issued",
 		fmt.Sprintf("Issued certificate for %q (serial %s). View or download it from the dashboard.",
-			rec.CommonName, rec.Serial))
+			rec.CommonName, rec.Serial), issueFlashCookie, "/")
 }
 
 func (s *Server) issueError(w http.ResponseWriter, r *http.Request, msg string) {

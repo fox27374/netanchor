@@ -1,9 +1,9 @@
 // NetAnchor — a simple, web-based certificate authority written in pure Go.
 //
-// Everything is backed by the Go standard library: net/http for the GUI,
+// The core uses the Go standard library: net/http for the GUI,
 // crypto/x509 for the PKI work, crypto/pbkdf2 + crypto/aes for passphrase and
-// password protection, crypto/hmac for sessions, and crypto/tls for HTTPS. No
-// external dependencies, single static binary, data stored as PEM/JSON on disk.
+// password protection, crypto/hmac for sessions, and crypto/tls for HTTPS.
+// A static binary with PKCS#12 and SCEP/CMS libraries stores PEM/JSON on disk.
 package main
 
 import (
@@ -57,6 +57,13 @@ func main() {
 	}
 
 	srv := NewServer(store, auth)
+	if err := srv.scep.startup(os.Getenv("NETANCHOR_SCEP_SECRET_FILE")); err != nil {
+		log.Printf("SCEP startup recovery/unlock failed; enrollment remains locked: %v", err)
+	}
+	var scepServer *http.Server
+	if addr := os.Getenv("NETANCHOR_SCEP_ADDR"); addr != "" {
+		scepServer = &http.Server{Addr: addr, Handler: srv.scep.Routes(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 2*scepMaxMessage + 8192}
+	}
 	httpServer := &http.Server{
 		Addr:              *addr,
 		Handler:           auth.Middleware(srv.Routes()),
@@ -76,7 +83,11 @@ func main() {
 		log.Printf("TLS enabled — server certificate: %s (hosts: %s)", descr, strings.Join(hosts, ", "))
 	}
 
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
+	if scepServer != nil {
+		go func() { errc <- scepServer.ListenAndServe() }()
+		log.Printf("SCEP-only HTTP listener: %s", scepServer.Addr)
+	}
 	go func() {
 		if tlsEnabled {
 			errc <- httpServer.ListenAndServeTLS(certFile, keyFile)
@@ -104,6 +115,11 @@ func main() {
 		log.Printf("received %s, shutting down...", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		if scepServer != nil {
+			if err := scepServer.Shutdown(ctx); err != nil {
+				log.Printf("SCEP shutdown: %v", err)
+			}
+		}
 		if err := httpServer.Shutdown(ctx); err != nil {
 			log.Printf("graceful shutdown failed: %v", err)
 		}

@@ -70,6 +70,7 @@
         <td data-label="Type">
           {{if eq .Kind "issued"}}<span class="tag issued">Issued</span>{{end}}
           {{if eq .Kind "csr"}}<span class="tag csr">Signed CSR</span>{{end}}
+          {{if eq .Provenance "scep"}}<span class="pill">SCEP</span>{{end}}
         </td>
         <td data-label="Template">{{if .TemplateName}}{{.TemplateName}}{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="muted" data-label="Issuer" style="font-size:13px">

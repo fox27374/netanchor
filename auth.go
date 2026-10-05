@@ -303,9 +303,12 @@ func userFromContext(ctx context.Context) (User, bool) {
 
 // --- middleware -----------------------------------------------------------
 
-// isPublicPath reports whether a path is served without login: the health
-// probe and the logo, which the login page and favicon need.
+// isPublicPath reports whether a path is served without login: health, the logo,
+// and SCEP protocol endpoints (which authenticate enrollment via CMS/challenges).
 func isPublicPath(path string) bool {
+	if scepPath(path) {
+		return true
+	}
 	switch path {
 	case "/healthz", "/logo.svg", "/favicon.ico":
 		return true
@@ -360,6 +363,9 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 // changes state, plus private-key downloads, is admin-only; read views are open
 // to any authenticated user.
 func requiresAdmin(method, path string) bool {
+	if path == "/admin/scep" || strings.HasPrefix(path, "/admin/scep/") {
+		return true
+	}
 	// Managing certificate templates is admin-only.
 	if strings.HasPrefix(path, "/templates") {
 		return true

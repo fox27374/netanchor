@@ -34,6 +34,7 @@ type CertRecord struct {
 	CreatedAt      time.Time    `json:"created_at"`
 	TemplateName   string       `json:"template_name,omitempty"`
 	TemplatePolicy CertTemplate `json:"template_policy,omitempty"`
+	Provenance     string       `json:"provenance,omitempty"`
 }
 
 // Store is a tiny file-backed persistence layer.
@@ -42,8 +43,9 @@ type CertRecord struct {
 //	<dir>/certs/<serial>-cert.pem, -key.pem
 //	<dir>/index.json                    -- metadata
 type Store struct {
-	dir string
-	mu  sync.Mutex
+	dir    string
+	mu     sync.Mutex
+	scepMu sync.Mutex // serializes SCEP commits with CA/certificate deletion
 }
 
 func OpenStore(dir string) (*Store, error) {
@@ -202,7 +204,7 @@ func (s *Store) saveIndex(recs []CertRecord) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.indexPath(), data, 0o600)
+	return durableWrite(s.indexPath(), data)
 }
 
 // AddRecord appends a record, replacing any existing record for the root CA
@@ -595,6 +597,11 @@ func caSubtree(recs []CertRecord, id string) (cas, certs []CertRecord, err error
 // DeleteCA moves an intermediate CA, its descendant CAs and all certificates
 // they issued to the trash.
 func (s *Store) DeleteCA(id string) error {
+	s.scepMu.Lock()
+	defer s.scepMu.Unlock()
+	if err := s.reconcileSCEP(); err != nil {
+		return err
+	}
 	if !s.ValidCAID(id) {
 		return fmt.Errorf("CA %s not found", id)
 	}
@@ -613,6 +620,13 @@ func (s *Store) DeleteCA(id string) error {
 
 // DeleteCert moves a single issued certificate (and its key) to the trash.
 func (s *Store) DeleteCert(serial string) error {
+	s.scepMu.Lock()
+	defer s.scepMu.Unlock()
+	// Finish committed SCEP projections before deletion so crash recovery cannot
+	// mistake an intentionally deleted certificate for an unfinished issuance.
+	if err := s.reconcileSCEP(); err != nil {
+		return err
+	}
 	if !ValidSerial(serial) {
 		return errors.New("invalid serial")
 	}

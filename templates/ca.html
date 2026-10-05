@@ -1,13 +1,6 @@
 {{define "content"}}
 {{$ca := .Data}}
 
-{{if .CAFlash}}
-<aside class="ca-toast alert ok" role="status" aria-live="polite">
-  <div><strong>{{.CAFlash.Title}}</strong><p>{{.CAFlash.Body}}</p></div>
-  <button type="button" aria-label="Dismiss notification" onclick="this.parentElement.remove()">&times;</button>
-</aside>
-{{end}}
-
 <h2>Certificate Authority</h2>
 
 {{/* ------------------------------ ROOT ------------------------------ */}}
@@ -154,6 +147,7 @@
           </div>
         </div>
         <label><input type="checkbox" name="allow_sub" style="width:auto;margin-right:8px"> Allow sub-CAs (can sign intermediates; if unchecked, can only sign leaf certificates)</label>
+        <label><input type="checkbox" name="scep" style="width:auto;margin-right:8px"> Dedicated SCEP intermediate (select RSA 2048/4096 and leave Allow sub-CAs unchecked; adds keyEncipherment)</label>
         <label for="i_parentpass">Parent CA passphrase</label>
         <input id="i_parentpass" name="parent_passphrase" type="password" autocomplete="off">
         <div class="row">

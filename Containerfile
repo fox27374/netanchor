@@ -48,6 +48,8 @@ USER netanchor
 WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8443
+# Optional SCEP-only HTTP listener (disabled unless NETANCHOR_SCEP_ADDR is set).
+EXPOSE 8080
 
 # Bind to all interfaces inside the container so the published port is reachable.
 # TLS and authentication are ON by default; see the README for NETANCHOR_TLS,
