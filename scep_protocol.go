@@ -345,7 +345,7 @@ func parseSCEPQuery(r *http.Request) (url.Values, error) {
 }
 func (e *SCEPService) Routes() http.Handler {
 	// Intentionally no UI, login, setup, health or catch-all redirect routes.
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return e.store.operations(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if !scepPath(r.URL.Path) {
 			http.NotFound(w, r)
@@ -429,5 +429,5 @@ func (e *SCEPService) Routes() http.Handler {
 		default:
 			http.Error(w, "unsupported SCEP operation", 400)
 		}
-	})
+	}))
 }

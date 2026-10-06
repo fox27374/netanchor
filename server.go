@@ -28,12 +28,15 @@ var logoSVG []byte
 
 // Server wires the store and auth to the HTTP handlers and parsed templates.
 type Server struct {
-	store     *Store
-	auth      *Auth
-	templates map[string]*template.Template
-	flashMu   sync.Mutex
-	flashes   map[string]caFlash
-	scep      *SCEPService
+	store       *Store
+	auth        *Auth
+	templates   map[string]*template.Template
+	flashMu     sync.Mutex
+	flashes     map[string]caFlash
+	scep        *SCEPService
+	backupMu    sync.Mutex
+	restart     chan struct{}
+	restartOnce sync.Once
 }
 
 const (
@@ -47,7 +50,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "backup"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -60,11 +63,14 @@ func NewServer(store *Store, auth *Auth) *Server {
 		}}).ParseFS(
 			templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
-	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash), scep: newSCEPService(store)}
+	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash), scep: newSCEPService(store), restart: make(chan struct{})}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/backup", s.handleBackupPage)
+	mux.HandleFunc("POST /admin/backup", s.handleBackup)
+	mux.HandleFunc("POST /admin/restore", s.handleRestore)
 	for _, path := range scepPaths {
 		mux.Handle(path, s.scep.Routes())
 	}
@@ -1128,7 +1134,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.issueSession(w, username)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/users", http.StatusSeeOther)
 }
 
 func (s *Server) setupError(w http.ResponseWriter, r *http.Request, msg string) {

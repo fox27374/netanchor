@@ -318,7 +318,7 @@ func isPublicPath(path string) bool {
 
 // Middleware enforces authentication and role-based access.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return a.store.operations(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.enabled || isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
@@ -356,13 +356,16 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), userCtxKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+	}))
 }
 
 // requiresAdmin reports whether a request needs the admin role. Everything that
 // changes state, plus private-key downloads, is admin-only; read views are open
 // to any authenticated user.
 func requiresAdmin(method, path string) bool {
+	if path == "/admin/backup" || path == "/admin/restore" {
+		return true
+	}
 	if path == "/admin/scep" || strings.HasPrefix(path, "/admin/scep/") {
 		return true
 	}

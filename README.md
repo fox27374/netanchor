@@ -39,6 +39,12 @@ with no cgo. The rest uses the standard library:
 
   On first run you create the initial admin account. Passwords are hashed with
   PBKDF2-SHA256; sessions are stateless HMAC-signed cookies (survive restarts).
+- **Encrypted full-instance backup/restore** — manual administrator downloads
+  under **Management → Backup & Restore**, protected by a separate password.
+  Restore validates and stages a full replacement, invalidates sessions and unused
+  SCEP challenges, then shuts down for restart. Fresh installations can restore
+  immediately after creating a temporary admin. See [BACKUP.md](BACKUP.md) for
+  format/size limits, recovery, identity options and operational consequences.
 - **HTTPS by default** — the GUI is served over TLS. The server certificate is
   issued by your own root CA when one is available (import the root and the GUI
   is trusted), otherwise it's self-signed.
@@ -145,6 +151,30 @@ version 1.5.0.
 For the designated remote container host, the parent deployment can use
 `podhost <build/run command>` to run on `ataltpr06.lnxnet.org`.
 
+### Developer workflow
+
+Install Go and GNU Make for local checks. `make verify` runs build, vet, and all
+Go tests. For development deployment, install `podhost` at `~/.local/bin/podhost`
+and put that directory on `PATH`; it copies this checkout to `ataltpr06` and runs
+the requested command there. The remote host needs Podman plus a working Compose
+provider and the existing `netanchor-data` volume. `make deploy-dev` builds and
+recreates only the development app using `compose.dev.yaml` (override published
+ports with `NETANCHOR_HTTPS_PORT` and `NETANCHOR_SCEP_PORT`). It never creates or
+removes data volumes. It inspects legacy container mounts before replacement and
+refuses a mismatched mount. Restarting interrupts active requests, including
+locked SCEP enrollments; avoid deploying during enrollment activity.
+
+After committing feature work, a clean, up-to-date `main` can be released with
+`make release VERSION=1.6.0`. This verifies first, updates the four intentional
+version references, commits them, creates an annotated tag, and atomically pushes
+branch and tag. This is distinct from `make deploy-dev`: development builds the
+current source on the remote host, while release pushes source metadata and the
+tag-driven publication workflow creates the published image. No credentials are
+embedded; configure Git transport credentials externally. If release fails,
+inspect `git status`, the current commit/tag, and the remote before any retry; the
+local commit/tag steps are not transactionally rolled back. Never manually rerun
+blindly after a push error.
+
 Without `NETANCHOR_SCEP_SECRET_FILE`, each restart requires an explicit UI unlock,
 even for an unencrypted CA key. To auto-unlock, mount a file read-only, readable
 by container uid 65532, and set the variable to its **container path**, e.g.
@@ -160,8 +190,9 @@ Its fsynced, atomically replaced journal commits the certificate and token
 consumption together before publishing PEM/index files or returning success.
 If publication fails, the request receives HTTP 503; repair storage and retry.
 Startup or a later valid request completes the same committed issuance, without
-minting another certificate. Back up `scep.json` together with the rest of the
-data directory while stopped; do not restore the journal independently.
+minting another certificate. Use the encrypted full-instance backup under
+Management, or copy the complete data directory while stopped; do not restore
+the SCEP journal independently.
 CA/certificate deletion first completes pending journal projections, including
 PEMs whose index update failed; if reconciliation fails, deletion aborts before
 moving files. A missing or unreadable CA is never interpreted as proof of deletion:
@@ -295,7 +326,8 @@ For this workload a **named volume is the right choice**:
   low-write — no need for a query engine.
 - It keeps the zero-dependency design; a DB would mean another container or a
   cgo-linked embedded engine.
-- Easy backup/restore: `podman volume export netanchor-data > backup.tar`.
+- Encrypted live backup/restore in Management; offline volume exports must be
+  taken while stopped and contain unencrypted private material.
 - Directly inspectable: `openssl x509 -in cert.pem -text`.
 
 A database only pays off once you need concurrent multi-instance writers,
@@ -392,6 +424,7 @@ a passphrase; there is no recovery if you forget it.
 | `certtemplates.go` | Certificate template (issuance preset) model + validation |
 | `certinfo.go`  | Parsing a cert into a details view                          |
 | `store.go`     | File-backed persistence + metadata index                    |
+| `backup*.go`, `restore.go` | Encrypted archives, validation, operation barrier, durable replacement/recovery |
 | `server.go`    | HTTP routes, handlers, template rendering                    |
 | `scep_protocol.go` | SCEP/CMS policy checks, enrollment and protocol HTTP routes |
 | `scep_store.go` | CA unlock state, challenge journal and issuance recovery |

@@ -43,9 +43,12 @@ type CertRecord struct {
 //	<dir>/certs/<serial>-cert.pem, -key.pem
 //	<dir>/index.json                    -- metadata
 type Store struct {
-	dir    string
-	mu     sync.Mutex
-	scepMu sync.Mutex // serializes SCEP commits with CA/certificate deletion
+	operationsMu    sync.RWMutex // outermost: complete HTTP operations on both listeners
+	operationLimits operationLimits
+	stopped         bool // guarded by operationsMu; restored caches must never be served
+	dir             string
+	mu              sync.Mutex
+	scepMu          sync.Mutex // serializes SCEP commits with CA/certificate deletion
 }
 
 func OpenStore(dir string) (*Store, error) {
@@ -405,9 +408,9 @@ func (s *Store) LoadTemplates() ([]CertTemplate, error) {
 	if err := json.Unmarshal(data, &tmpls); err != nil {
 		return nil, err
 	}
+	old, _ := json.Marshal(tmpls)
 	migrated := migrateTemplates(tmpls)
 	if len(migrated) > 0 {
-		old, _ := json.Marshal(tmpls)
 		next, _ := json.Marshal(migrated)
 		if string(old) != string(next) {
 			if err := s.saveTemplates(migrated); err != nil {

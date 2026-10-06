@@ -14,6 +14,8 @@ services:
     # selected automatically). To build locally instead, see the Containerfile.
     image: ghcr.io/fox27374/netanchor:1.5.0
     container_name: netanchor
+    # A successful instance restore shuts down after completing its response.
+    # This policy starts it again with restored authentication/TLS/SCEP state.
     restart: unless-stopped
 
     ports:

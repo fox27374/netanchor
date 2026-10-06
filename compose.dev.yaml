@@ -1,0 +1,36 @@
+services:
+  netanchor:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: netanchor:dev
+    container_name: netanchor
+    restart: unless-stopped
+    ports:
+      - "${NETANCHOR_HTTPS_PORT:-8443}:8443"
+      - "${NETANCHOR_SCEP_PORT:-8085}:8080"
+    environment:
+      NETANCHOR_ADDR: "0.0.0.0:8443"
+      NETANCHOR_DATA: /data
+      NETANCHOR_SCEP_ADDR: "0.0.0.0:8080"
+      NETANCHOR_TLS_HOSTS: "ataltpr06.lnxnet.org,ataltpr06,10.140.60.248,localhost,127.0.0.1"
+    volumes:
+      - netanchor-data:/data
+    user: "65532:65532"
+    healthcheck:
+      test: ["CMD", "netanchor", "-health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  netanchor-data:
+    external: true

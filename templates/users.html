@@ -1,5 +1,7 @@
 {{define "content"}}
 <h2>Users</h2>
+<div class="panel"><p>Manage this instance with <a class="btn secondary" href="/admin/backup">Backup &amp; Restore</a>.</p>
+{{if not .HasCA}}<p>Starting from a backup? Restore now, before creating a CA. Restored users replace this temporary administrator. Or <a class="btn secondary" href="/ca">create a new CA</a>.</p>{{end}}</div>
 
 <div class="panel">
   <p class="cardtitle">Accounts</p>

@@ -44,6 +44,9 @@ func main() {
 		os.Exit(runHealthCheck(*addr, tlsEnabled))
 	}
 
+	if err := recoverRestore(*dataDir); err != nil {
+		log.Fatalf("restore recovery failed; refusing to open data: %v", err)
+	}
 	store, err := OpenStore(*dataDir)
 	if err != nil {
 		log.Fatalf("opening store: %v", err)
@@ -68,6 +71,8 @@ func main() {
 		Addr:              *addr,
 		Handler:           auth.Middleware(srv.Routes()),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       restoreReadTimeout,
+		WriteTimeout:      restoreReadTimeout + operationWriteTimeout,
 	}
 
 	scheme := "http"
@@ -113,16 +118,18 @@ func main() {
 		}
 	case sig := <-stop:
 		log.Printf("received %s, shutting down...", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if scepServer != nil {
-			if err := scepServer.Shutdown(ctx); err != nil {
-				log.Printf("SCEP shutdown: %v", err)
-			}
+	case <-srv.restart:
+		log.Print("Restore requires restart. Shutting down; restart the binary or let the container restart policy start it.")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if scepServer != nil {
+		if err := scepServer.Shutdown(ctx); err != nil {
+			log.Printf("SCEP shutdown: %v", err)
 		}
-		if err := httpServer.Shutdown(ctx); err != nil {
-			log.Printf("graceful shutdown failed: %v", err)
-		}
+	}
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
 	}
 }
 
