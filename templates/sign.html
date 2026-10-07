@@ -7,7 +7,7 @@
     <label for="template">Certificate profile (required)</label>
     <select id="template" name="template" required>
       <option value="">— select profile —</option>
-      {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}
+      <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{end}}
     </select>
 
     <details class="adv">
