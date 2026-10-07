@@ -117,9 +117,14 @@
 {{if $ca.Root}}
 {{if $.IsAdmin}}
 <div class="panel">
-  <p class="cardtitle">Create Intermediate CA <span class="muted">(optional)</span></p>
-  <p class="muted">Intermediates can be configured for different purposes: issuing leaf certificates only, issuing sub-intermediates to create nested hierarchies, or dedicated SCEP enrollment. Choose your intermediate's purpose carefully, as this affects which other CAs can use it as an issuer.</p>
-  <form method="post" action="/ca/intermediate">
+  <details {{if .Error}}open{{end}} style="cursor:default;">
+    <summary style="list-style:none; display:inline-block; margin:0; padding:0; cursor:pointer;">
+      <button class="btn" type="button" style="margin:0; width:auto; display:inline-block;">Add CA</button>
+    </summary>
+    <div style="margin-top:20px;">
+      <p class="cardtitle">Create Intermediate CA <span class="muted">(optional)</span></p>
+      <p class="muted">Intermediates can be configured for different purposes: issuing leaf certificates only, issuing sub-intermediates to create nested hierarchies, or dedicated SCEP enrollment. Choose your intermediate's purpose carefully, as this affects which other CAs can use it as an issuer.</p>
+      <form method="post" action="/ca/intermediate">
     <label for="i_cn">Common Name</label>
     <input id="i_cn" name="common_name" placeholder="NetAnchor Intermediate CA" required>
     <div class="form-grid">
@@ -195,40 +200,42 @@
       <div>
         <p class="muted">An intermediate CA is a certificate authority that sits between the root CA and end-entity certificates. Its configuration determines what it can issue. A leaf-only intermediate can only issue end-entity certificates. An intermediate configured to allow sub-CAs can issue both end-entity certificates and other intermediate CAs, creating a nested hierarchy. A dedicated SCEP intermediate is a special-purpose CA for Simple Certificate Enrollment Protocol, used for automated device enrollment; it must be RSA-based (for encryption) and leaf-only, and will have the keyEncipherment key usage added automatically.</p>
       </div>
-    </details>
-  </form>
-  <script>
-    (function() {
-      var allowSubCAs = document.getElementById('i_allow_sub');
-      var scep = document.getElementById('i_scep');
-      var algo = document.querySelector('select[name="algo"]');
-      var warning = document.getElementById('i_purpose_warning');
-      var warningText = document.getElementById('i_warning_text');
+      </details>
+      </form>
+      <script>
+        (function() {
+          var allowSubCAs = document.getElementById('i_allow_sub');
+          var scep = document.getElementById('i_scep');
+          var algo = document.querySelector('select[name="algo"]');
+          var warning = document.getElementById('i_purpose_warning');
+          var warningText = document.getElementById('i_warning_text');
 
-      function checkInvalid() {
-        warning.style.display = 'none';
+          function checkInvalid() {
+            warning.style.display = 'none';
 
-        if (!scep.checked) return;
+            if (!scep.checked) return;
 
-        // SCEP selected - check for violations
-        if (allowSubCAs.checked) {
-          warning.style.display = 'block';
-          warningText.textContent = 'SCEP intermediates cannot allow sub-CAs.';
-          return;
-        }
+            // SCEP selected - check for violations
+            if (allowSubCAs.checked) {
+              warning.style.display = 'block';
+              warningText.textContent = 'SCEP intermediates cannot allow sub-CAs.';
+              return;
+            }
 
-        if (algo.value !== 'rsa2048' && algo.value !== 'rsa4096') {
-          warning.style.display = 'block';
-          warningText.textContent = 'SCEP intermediates require RSA 2048 or 4096.';
-          return;
-        }
-      }
+            if (algo.value !== 'rsa2048' && algo.value !== 'rsa4096') {
+              warning.style.display = 'block';
+              warningText.textContent = 'SCEP intermediates require RSA 2048 or 4096.';
+              return;
+            }
+          }
 
-      allowSubCAs.addEventListener('change', checkInvalid);
-      scep.addEventListener('change', checkInvalid);
-      algo.addEventListener('change', checkInvalid);
-    })();
-  </script>
+          allowSubCAs.addEventListener('change', checkInvalid);
+          scep.addEventListener('change', checkInvalid);
+          algo.addEventListener('change', checkInvalid);
+        })();
+      </script>
+    </div>
+  </details>
 </div>
 {{end}}
 {{end}}
