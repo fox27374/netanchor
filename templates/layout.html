@@ -250,6 +250,9 @@
     button.querySelector('.theme-icon').textContent = light ? '☾' : '☀';
     try { localStorage.setItem('netanchor-theme', light ? 'light' : 'dark'); } catch (_) {}
   }
+  document.querySelectorAll('.toast').forEach(function (toast) {
+    setTimeout(function () { toast.remove(); }, 8000);
+  });
   function copyFrom(id, btn) {
     var el = document.getElementById(id);
     if (!el) return;
