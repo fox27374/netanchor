@@ -3,13 +3,21 @@
   <h2>Issue a certificate</h2>
   <p class="muted">NetAnchor issues a certificate signed by your selected CA.</p>
   <form method="post" action="/issue">
+    <div class="form-grid" style="align-items:start">
     {{if .Data}}
+    <div>
     <label for="template">Certificate profile (required)</label>
     <select id="template" name="template" required>
       <option value="">— select profile —</option>
-      {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}
+      <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{end}}
     </select>
+    </div>
     {{end}}
+    <div>
+    <label for="common_name">Common Name</label>
+    <input id="common_name" name="common_name" placeholder="example.local">
+    </div>
+    </div>
 
     <details class="adv">
       <summary>What a certificate profile determines</summary>
@@ -17,9 +25,6 @@
         <p class="muted" style="font-size:12px;margin:0">The selected profile determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
       </div>
     </details>
-
-    <label for="common_name">Common Name</label>
-    <input id="common_name" name="common_name" placeholder="example.local">
 
     <div class="san-grid">
     <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server profiles)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>

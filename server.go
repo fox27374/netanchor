@@ -1272,7 +1272,15 @@ func (s *Server) handleTemplateDuplicate(w http.ResponseWriter, r *http.Request)
 		s.templatesPage(w, r, "Unknown built-in profile.")
 		return
 	}
-	source.Name = strings.TrimSpace(r.FormValue("name"))
+	// Pick the first free "Copy-<name>" (then -2, -3, ...) so repeated duplicates don't collide.
+	base := "Copy-" + source.Name
+	source.Name = base
+	for n := 2; ; n++ {
+		if _, taken := s.store.GetTemplate(source.Name); !taken {
+			break
+		}
+		source.Name = fmt.Sprintf("%s-%d", base, n)
+	}
 	source.Builtin = false
 	if err := s.store.AddTemplate(source); err != nil {
 		s.templatesPage(w, r, err.Error())

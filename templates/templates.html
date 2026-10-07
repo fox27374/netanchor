@@ -6,7 +6,7 @@
 <div class="panel">
   <p class="cardtitle">Templates</p>
   {{$tmpls := .Data.Custom}}
-  <h3>Built-in profiles</h3><table class="stack"><thead><tr><th>Name / purpose</th><th>Policy</th><th>Validity</th><th></th></tr></thead><tbody>{{range .Data.Builtins}}<tr><td>{{.Name}}<div class="muted">{{.Description}} · {{.Profile}}</div></td><td data-label="Policy">{{range .AllowedAlgos}}{{.}} {{end}} · all issuers</td><td data-label="Validity">{{.ValidDays}}d default / {{.MaxDays}}d max</td><td><form method="post" action="/templates/duplicate"><input type="hidden" name="source" value="{{.Name}}"><label>New name</label><input name="name" value="Copy-{{.Name}}" required><button class="btn secondary">Duplicate</button></form></td></tr>{{end}}</tbody></table>
+  <h3>Built-in profiles</h3><table class="stack"><thead><tr><th>Name / purpose</th><th>Policy</th><th>Validity</th><th></th></tr></thead><tbody>{{range .Data.Builtins}}<tr><td>{{.Name}}<div class="muted">{{.Description}} · {{.Profile}}</div></td><td data-label="Policy">{{range .AllowedAlgos}}{{.}} {{end}} · all issuers</td><td data-label="Validity">{{.ValidDays}}d default / {{.MaxDays}}d max</td><td><form method="post" action="/templates/duplicate"><input type="hidden" name="source" value="{{.Name}}"><button class="btn secondary">Duplicate</button></form></td></tr>{{end}}</tbody></table>
   <h3>Custom profiles</h3>
   {{if $tmpls}}
   <table class="stack">
