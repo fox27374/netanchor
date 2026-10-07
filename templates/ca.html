@@ -190,6 +190,12 @@
       </div>
     </div>
     <button class="btn" type="submit">Create intermediate CA</button>
+    <details class="adv">
+      <summary>About intermediate CAs and purpose selection</summary>
+      <div>
+        <p class="muted">An intermediate CA is a certificate authority that sits between the root CA and end-entity certificates. Its configuration determines what it can issue. A leaf-only intermediate can only issue end-entity certificates. An intermediate configured to allow sub-CAs can issue both end-entity certificates and other intermediate CAs, creating a nested hierarchy. A dedicated SCEP intermediate is a special-purpose CA for Simple Certificate Enrollment Protocol, used for automated device enrollment; it must be RSA-based (for encryption) and leaf-only, and will have the keyEncipherment key usage added automatically.</p>
+      </div>
+    </details>
   </form>
   <script>
     (function() {
