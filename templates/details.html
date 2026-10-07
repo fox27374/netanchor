@@ -76,20 +76,26 @@
   </div>
 </div>
 
-{{/* Inline PEM, ready to copy & paste. */}}
+{{/* Inline PEM, ready to copy & paste. Certificate and private key sit side by side. */}}
 <div class="panel">
-  <div class="pemhead">
-    <p class="cardtitle">Certificate (PEM)</p>
-    <button class="copybtn" type="button" onclick="copyFrom('certpem', this)">Copy</button>
+  <div {{if $d.KeyPEM}}class="grid2"{{end}}>
+    <div>
+      <div class="pemhead">
+        <p class="cardtitle">Certificate (PEM)</p>
+        <button class="copybtn" type="button" onclick="copyFrom('certpem', this)">Copy</button>
+      </div>
+      <textarea id="certpem" class="pembox" rows="12" readonly>{{$d.CertPEM}}</textarea>
+    </div>
+    {{if $d.KeyPEM}}
+    <div>
+      <div class="pemhead">
+        <p class="cardtitle">Private key (PEM)</p>
+        <button class="copybtn" type="button" onclick="copyFrom('keypem', this)">Copy</button>
+      </div>
+      <textarea id="keypem" class="pembox" rows="12" readonly>{{$d.KeyPEM}}</textarea>
+    </div>
+    {{end}}
   </div>
-  <textarea id="certpem" class="pembox" rows="12" readonly>{{$d.CertPEM}}</textarea>
-  {{if $d.KeyPEM}}
-  <div class="pemhead" style="margin-top:20px">
-    <p class="cardtitle">Private key (PEM)</p>
-    <button class="copybtn" type="button" onclick="copyFrom('keypem', this)">Copy</button>
-  </div>
-  <textarea id="keypem" class="pembox" rows="9" readonly>{{$d.KeyPEM}}</textarea>
-  {{end}}
 </div>
 
 <div class="panel">
