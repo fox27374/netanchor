@@ -65,6 +65,8 @@
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
   .cardtitle { font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin:0 0 12px; }
   .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; max-width:760px; align-items:end; }
+  .san-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; max-width:760px; align-items:start; }
+  .san-grid textarea { min-height:84px; }
   .form-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 20px; max-width:760px; align-items:end; }
   .form-narrow { max-width:370px; }
   details.adv summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:8px; }
@@ -144,6 +146,7 @@
     .grid2 { grid-template-columns:1fr; }
     .form-grid { grid-template-columns:1fr; }
     .form-grid-3 { grid-template-columns:1fr; }
+    .san-grid { grid-template-columns:1fr; }
     .row { flex-direction:column; }
     .row > div { min-width:0; }
     .form-narrow { max-width:none; }

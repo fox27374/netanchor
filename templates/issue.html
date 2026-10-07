@@ -21,10 +21,12 @@
     <label for="common_name">Common Name</label>
     <input id="common_name" name="common_name" placeholder="example.local">
 
+    <div class="san-grid">
     <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server profiles)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>
     <div data-san-type="ip"><label for="ip_sans">IP SANs</label><textarea id="ip_sans" name="ip_sans" placeholder="192.0.2.1"></textarea></div>
-    <div data-san-type="email"><label for="email_sans">Email SANs (required for S/MIME)</label><textarea id="email_sans" name="email_sans"></textarea></div>
-    <div data-san-type="uri"><label for="uri_sans">URI SANs</label><textarea id="uri_sans" name="uri_sans"></textarea></div>
+    <div data-san-type="email"><label for="email_sans">Email SANs (required for S/MIME)</label><textarea id="email_sans" name="email_sans" placeholder="alice@example.com"></textarea></div>
+    <div data-san-type="uri"><label for="uri_sans">URI SANs</label><textarea id="uri_sans" name="uri_sans" placeholder="spiffe://example.org/service/web"></textarea></div>
+    </div>
 
     <details class="adv">
       <summary>Optional subject details</summary>

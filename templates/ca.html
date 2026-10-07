@@ -117,10 +117,8 @@
 {{if $ca.Root}}
 {{if $.IsAdmin}}
 <div class="panel">
-  <details {{if .Error}}open{{end}} style="cursor:default;">
-    <summary style="list-style:none; display:inline-block; margin:0; padding:0; cursor:pointer;">
-      <button class="btn" type="button" style="margin:0; width:auto; display:inline-block;">Add CA</button>
-    </summary>
+  <details {{if .Error}}open{{end}}>
+    <summary class="btn" style="margin:0; list-style:none;">Add CA</summary>
     <div style="margin-top:20px;">
       <p class="cardtitle">Create Intermediate CA <span class="muted">(optional)</span></p>
       <p class="muted">Intermediates can be configured for different purposes: issuing leaf certificates only, issuing sub-intermediates to create nested hierarchies, or dedicated SCEP enrollment. Choose your intermediate's purpose carefully, as this affects which other CAs can use it as an issuer.</p>
