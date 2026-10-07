@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="panel">
   <h2>Issue a certificate</h2>
-  <p class="muted">NetAnchor generates a fresh key pair and signs a certificate with your CA. You'll be able to download the certificate and the private key.</p>
+  <p class="muted">NetAnchor issues a certificate signed by your selected CA.</p>
   <form method="post" action="/issue">
     {{if .Data}}
     <label for="template">Certificate profile (required)</label>
@@ -9,22 +9,38 @@
       <option value="">— select profile —</option>
       {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}} — {{.Description}}</option>{{end}}
     </select>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">The selected profile determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
     {{end}}
+
+    <details class="adv">
+      <summary>What a certificate profile determines</summary>
+      <div>
+        <p class="muted" style="font-size:12px;margin:0">The selected profile determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
+      </div>
+    </details>
 
     <label for="common_name">Common Name</label>
     <input id="common_name" name="common_name" placeholder="example.local">
-
-    <label for="organization">Organization (optional)</label>
-    <input id="organization" name="organization" placeholder="Acme Corp">
-
-    <label for="country">Country code (optional)</label>
-    <input id="country" name="country" maxlength="2" placeholder="AT">
 
     <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server profiles)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>
     <div data-san-type="ip"><label for="ip_sans">IP SANs</label><textarea id="ip_sans" name="ip_sans" placeholder="192.0.2.1"></textarea></div>
     <div data-san-type="email"><label for="email_sans">Email SANs (required for S/MIME)</label><textarea id="email_sans" name="email_sans"></textarea></div>
     <div data-san-type="uri"><label for="uri_sans">URI SANs</label><textarea id="uri_sans" name="uri_sans"></textarea></div>
+
+    <details class="adv">
+      <summary>Optional subject details</summary>
+      <div>
+        <div class="row">
+          <div>
+            <label for="organization">Organization</label>
+            <input id="organization" name="organization" placeholder="Acme Corp">
+          </div>
+          <div>
+            <label for="country">Country code</label>
+            <input id="country" name="country" maxlength="2" placeholder="AT">
+          </div>
+        </div>
+      </div>
+    </details>
 
     <div class="row">
       <div>
@@ -33,9 +49,6 @@
           {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
         </select>
       </div>
-    </div>
-
-    <div class="row">
       <div>
         <label for="algo">Key algorithm</label>
         <select id="algo" name="algo">
@@ -46,14 +59,15 @@
           <option value="rsa4096">RSA 4096</option>
         </select>
       </div>
-      <div>
-        <label for="valid_days">Validity (days)</label>
-        <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
-      </div>
     </div>
 
-    <label for="ca_passphrase">Issuing CA passphrase</label>
-    <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
+    <label for="valid_days">Validity (days)</label>
+    <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
+
+    <div class="form-narrow">
+      <label for="ca_passphrase">Issuing CA passphrase</label>
+      <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
+    </div>
 
     <button class="btn" type="submit">Issue certificate</button>
   </form>
