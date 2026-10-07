@@ -158,14 +158,14 @@
     </div>
     <div style="margin:16px 0 14px; display:flex; flex-direction:column; gap:10px;">
       <label style="display:flex; align-items:flex-start; gap:10px; margin:0; cursor:pointer; user-select:none;">
-        <input type="checkbox" name="allow_sub" id="i_allow_sub" style="width:auto; height:auto; flex:0 0 auto; margin-top:3px;">
+        <input type="checkbox" name="allow_sub" id="i_allow_sub">
         <span>
           <span style="color:var(--text); font-size:13px; font-weight:500;">Allow sub-CAs</span>
           <p style="margin:4px 0 0; color:var(--muted); font-size:12px;">This intermediate can issue sub-intermediates, creating a nested CA hierarchy.</p>
         </span>
       </label>
       <label style="display:flex; align-items:flex-start; gap:10px; margin:0; cursor:pointer; user-select:none;">
-        <input type="checkbox" name="scep" id="i_scep" style="width:auto; height:auto; flex:0 0 auto; margin-top:3px;">
+        <input type="checkbox" name="scep" id="i_scep">
         <span>
           <span style="color:var(--text); font-size:13px; font-weight:500;">Dedicated SCEP intermediate</span>
           <p style="margin:4px 0 0; color:var(--muted); font-size:12px;">For SCEP enrollment. Requires RSA 2048 or 4096 and cannot issue sub-CAs.</p>
