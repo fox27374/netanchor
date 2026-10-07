@@ -2,13 +2,14 @@
 <style>
   .backup-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; max-width:760px; }
   .backup-confirmation { max-width:370px; }
+  .backup-warning { padding:12px 14px; border:1px solid var(--warn-bg); border-radius:8px; background:var(--warn-bg); color:var(--warn-fg); margin-bottom:20px; font-size:13px; line-height:1.5; }
   @media (max-width:680px) { .backup-fields { grid-template-columns:1fr; } .backup-confirmation { max-width:none; } }
 </style>
 <h2>Backup &amp; Restore</h2>
 <div class="panel">
   <p class="cardtitle">Encrypted full-instance backup</p>
-  <p>Includes CA private keys, certificates, profiles, users, HTTPS identity, SCEP journal/history and trash. Changes on both listeners pause briefly during the snapshot, then resume automatically.</p>
-  <p>Choose a unique password of at least 12 bytes (maximum 1024). A long random passphrase is recommended. The password is never stored. If lost, the backup cannot be recovered. Existing CA passphrases are still required after restore.</p>
+  <p class="muted">Includes CA keys, certificates, profiles, users, HTTPS identity and SCEP history.</p>
+  <p class="muted">Choose a password of at least 12 bytes; if lost, the backup cannot be recovered.</p>
   <form method="post" action="/admin/backup">
     <input type="hidden" name="csrf" value="{{.Data}}">
     <div class="backup-fields">
@@ -16,22 +17,42 @@
       <div><label for="backup-confirm">Confirm password</label><input id="backup-confirm" name="password_confirm" type="password" autocomplete="new-password" required></div>
     </div>
     <button class="btn" type="submit">Download encrypted backup</button>
+    <details class="adv">
+      <summary>What is included and how the password is used</summary>
+      <div>
+        <p class="muted" style="margin-top:0;">A backup contains a complete snapshot of logical data: CA private keys, certificates, profiles, users, HTTPS identity, SCEP journal and history, and all trash records. Changes on both listeners pause briefly during the snapshot, then resume automatically.</p>
+        <p class="muted">Choose a unique password of at least 12 bytes (maximum 1024). A long random passphrase is recommended. The password is never stored. If lost, the backup cannot be recovered. Existing CA passphrases are still required after restore.</p>
+      </div>
+    </details>
   </form>
 </div>
 <div class="panel">
   <p class="cardtitle">Replace this instance</p>
-  <p>Restore replaces all logical data, including users and trash. Your current account may disappear. Browser sessions and every unused SCEP challenge are invalidated. Used enrollment history and certificates are retained.</p>
-  <p>The archive is validated and staged before activation. Successful restore shuts down NetAnchor: containers with a restart policy restart automatically; standalone binaries must be started again. Sign in with a restored account after restart.</p>
-  <p>Restoring an older snapshot loses later issuance records; certificates already distributed remain valid. Keep the source stopped when moving an instance. Deployment configuration and external unlock secrets are not included.</p>
+  <p class="muted">Restore replaces all data and shuts down NetAnchor. If configured with a restart policy, containers restart automatically; standalone binaries must be started manually.</p>
+  <div class="backup-warning">
+    <strong>Warning:</strong> Your current account may disappear and be replaced. All unused SCEP challenges are invalidated. Sign in with an account from the backup after restart.
+  </div>
   <form method="post" action="/admin/restore" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{.Data}}">
     <div class="backup-fields">
       <div><label for="archive">Encrypted .nab backup (64 MiB archive limit)</label><input id="archive" name="archive" type="file" accept=".nab" required></div>
       <div><label for="restore-password">Backup password</label><input id="restore-password" name="password" type="password" autocomplete="off" required></div>
     </div>
-    <label><input style="width:auto" type="checkbox" name="regenerate"> Regenerate HTTPS identity for this destination using NETANCHOR_TLS_HOSTS. Otherwise preserve the backup identity (normal expiry renewal still applies).</label>
     <div class="backup-confirmation"><label for="replace">Type REPLACE to confirm full replacement and shutdown</label><input id="replace" name="confirm" autocomplete="off" required pattern="REPLACE"></div>
     <button class="btn" type="submit">Replace instance and shut down</button>
+    <details class="adv">
+      <summary>Restore process and limitations</summary>
+      <div>
+        <p class="muted" style="margin-top:0;">The archive is validated and staged before activation. Once restore begins, it shuts down NetAnchor to prevent concurrent data access. Sign in using an account from the backup after the service restarts.</p>
+        <p class="muted">Restoring an older snapshot removes later records, users and policy edits, but does not revoke certificates already distributed—those remain valid. Keep the source stopped when moving an instance. Deployment configuration and external unlock secrets are not included in backups.</p>
+      </div>
+    </details>
+    <details class="adv">
+      <summary>Advanced options</summary>
+      <div>
+        <label><input type="checkbox" name="regenerate" style="width:auto;margin-right:8px"> Regenerate HTTPS identity for this destination using NETANCHOR_TLS_HOSTS. Otherwise preserve the backup identity (normal expiry renewal still applies).</label>
+      </div>
+    </details>
   </form>
 </div>
 {{end}}
