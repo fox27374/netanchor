@@ -1,12 +1,23 @@
 {{define "content"}}
 {{$v := .Data}}
 <h2>SCEP enrollment</h2>
+
 <div class="panel">
-  <p>Immediate RSA enrollment for HTTPS / gNMI server certificates. AES-128-CBC and SHA-256 only. Cisco interoperability is unverified.</p>
-  <p>Endpoint: <code>/scep</code> (also <code>/cgi-bin/pkiclient.exe</code>). The optional HTTP listener serves only SCEP.</p>
+  <h3>Service status</h3>
+  <p>Immediate RSA enrollment for HTTPS / gNMI server certificates.</p>
   <p>Status: <strong>{{$v.Status}}</strong> · Selected CA: <code>{{$v.CA}}</code></p>
   {{if $v.Fingerprint}}<p>Selected CA SHA-256 fingerprint (verify out of band): <code>{{$v.Fingerprint}}</code></p>{{end}}
-  <p>Create a dedicated leaf-only RSA SCEP intermediate on the <a href="/ca">CA page</a> first.</p>
+  <details class="adv">
+    <summary>Endpoints and interoperability</summary>
+    <div>
+      <p>Endpoint: <code>/scep</code> (also <code>/cgi-bin/pkiclient.exe</code>). The optional HTTP listener serves only SCEP.</p>
+      <p>Create a dedicated leaf-only RSA SCEP intermediate on the <a href="/ca">CA page</a> first. AES-128-CBC and SHA-256 are the only algorithms. Cisco interoperability is unverified.</p>
+    </div>
+  </details>
+</div>
+
+<div class="panel">
+  <h3>Signing CA</h3>
   <form method="post" action="/admin/scep/unlock">
     <div class="form-grid">
       <div><label for="sca">Select and unlock CA</label>
@@ -16,11 +27,11 @@
     <button class="btn" type="submit">Select / unlock in memory</button>
   </form>
   <form method="post" action="/admin/scep/lock"><button class="btn" type="submit">Lock now</button></form>
-  <p class="muted">Restart locks the key unless NETANCHOR_SCEP_SECRET_FILE points to a mounted passphrase file. Selection persists; passphrases are never saved here.</p>
+  <p class="muted">Restart locks the key unless NETANCHOR_SCEP_SECRET_FILE points to a mounted passphrase file.</p>
 </div>
-{{if $v.Secret}}<div class="alert ok" role="status"><strong>Copy this challenge now. It is shown only in this response.</strong><pre>{{$v.Secret}}</pre></div>{{end}}
+
 <div class="panel">
-  <h3>Create single-use challenge</h3>
+  <h3>Create challenge</h3>
   <form method="post" action="/admin/scep/challenge">
     <label for="sprofile">Server profile (policy snapshot)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select>
     <label for="ssans">Exact authorized DNS / IP SANs (comma or newline separated)</label><textarea id="ssans" name="sans" required placeholder="switch.example.net, 192.0.2.10"></textarea>
@@ -30,8 +41,16 @@
     </div>
     <button class="btn" type="submit">Create challenge</button>
   </form>
-  <p class="muted">Issued SANs are exactly those authorized here, even if absent from the CSR. Extra CSR SANs are rejected. Successful same-transaction / same-CSR retries are retained for seven days. Revoking a challenge does not revoke a certificate.</p>
+  <details class="adv">
+    <summary>Challenge rules</summary>
+    <div>
+      <p>Issued SANs are exactly those authorized here, even if absent from the CSR. Extra CSR SANs are rejected. Successful same-transaction / same-CSR retries are retained for seven days. Revoking a challenge does not revoke a certificate.</p>
+    </div>
+  </details>
 </div>
+
+{{if $v.Secret}}<div class="alert ok" role="status"><strong>Copy this challenge now. It is shown only in this response.</strong><pre>{{$v.Secret}}</pre></div>{{end}}
+
 <div class="panel">
   <h3>Challenges</h3>
   <table class="stack"><thead><tr><th>Status / expiry</th><th>CA / profile</th><th>Authorized SANs</th><th>Action</th></tr></thead><tbody>
@@ -43,4 +62,5 @@
   </tr>{{else}}<tr><td colspan="4">No challenges.</td></tr>{{end}}
   </tbody></table>
 </div>
+
 {{end}}
