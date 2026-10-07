@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="panel">
   <h2>Sign a certificate signing request</h2>
-  <p class="muted">Paste a PEM-encoded CSR or upload a file. NetAnchor verifies the request signature and issues a certificate signed by your CA. The requester keeps their own private key.</p>
+  <p class="muted">NetAnchor verifies the request signature and issues a certificate signed by your CA.</p>
   <form method="post" action="/sign" enctype="multipart/form-data">
     {{if .Data}}
     <label for="template">Certificate profile (required)</label>
@@ -9,15 +9,22 @@
       <option value="">— select profile —</option>
       {{range .Data.Builtins}}<option value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}{{range .Data.Custom}}<option value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}} — {{.Description}}</option>{{end}}
     </select>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">A template sets the profile and validity below (subject and key come from the CSR).</p>
+
+    <details class="adv">
+      <summary>What a certificate profile determines</summary>
+      <div>
+        <p class="muted" style="font-size:12px;margin:0">A profile sets the certificate purpose and permitted issuers. The requester's private key stays with them; this profile and the CSR determine the subject and key.</p>
+      </div>
+    </details>
     {{end}}
 
-    <label for="csr">CSR (PEM)</label>
+    <label for="csr">CSR</label>
+    <p class="muted" style="font-size:12px;margin:14px 0 6px">Paste a PEM-encoded CSR or upload a file. The requester keeps their own private key.</p>
     <textarea id="csr" name="csr" placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"></textarea>
-
-    <label for="csr_file">…or upload a .csr / .pem file</label>
+    <label for="csr_file" style="margin-top:12px">Upload a .csr / .pem file</label>
     <input id="csr_file" name="csr_file" type="file" accept=".csr,.pem,.req,.txt">
 
+    <label style="margin-top:24px">Signing settings</label>
     <div class="row">
       <div>
         <label for="issuer">Issuing CA</label>
@@ -31,8 +38,10 @@
       </div>
     </div>
 
-    <label for="ca_passphrase">Issuing CA passphrase</label>
-    <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
+    <div class="form-narrow">
+      <label for="ca_passphrase">Issuing CA passphrase</label>
+      <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
+    </div>
 
     <button class="btn" type="submit">Sign CSR</button>
   </form>
@@ -57,8 +66,12 @@
 {{end}}
 
 <div class="panel">
-  <h2 style="font-size:15px">Need a CSR to test with?</h2>
-  <p class="muted" style="font-size:13px;margin-bottom:0">Generate one with OpenSSL:</p>
-  <p><code>openssl req -newkey rsa:2048 -nodes -keyout test.key -out test.csr -subj "/CN=test.local"</code></p>
+  <details class="adv">
+    <summary>Generating a test CSR</summary>
+    <div>
+      <p class="muted" style="font-size:13px;margin:0 0 12px">Generate a CSR with OpenSSL:</p>
+      <p><code>openssl req -newkey rsa:2048 -nodes -keyout test.key -out test.csr -subj "/CN=test.local"</code></p>
+    </div>
+  </details>
 </div>
 {{end}}
