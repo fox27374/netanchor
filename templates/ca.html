@@ -27,11 +27,11 @@
 {{else}}
 <div class="panel">
   <p class="cardtitle">Create root CA</p>
-  <p class="muted">This is the trust anchor for everything NetAnchor issues. Distribute its certificate to clients that need to trust your certs.</p>
+  <p class="muted">This is the trust anchor for your certificate infrastructure.</p>
   <form method="post" action="/ca/root">
     <label for="r_cn">Common Name (CA name)</label>
     <input id="r_cn" name="common_name" placeholder="NetAnchor Root CA" required>
-    <div class="row">
+    <div class="form-grid">
       <div>
         <label for="r_org">Organization (optional)</label>
         <input id="r_org" name="organization" placeholder="Acme Corp">
@@ -41,7 +41,7 @@
         <input id="r_country" name="country" placeholder="AT" maxlength="2">
       </div>
     </div>
-    <div class="row">
+    <div class="form-grid">
       <div>
         <label for="r_algo">Key algorithm</label>
         <select id="r_algo" name="algo">
@@ -56,18 +56,31 @@
         <input id="r_days" name="valid_days" type="number" value="3650" min="1">
       </div>
     </div>
-    <div class="row">
-      <div>
-        <label for="r_pass">Passphrase (optional)</label>
-        <input id="r_pass" name="passphrase" type="password" placeholder="Encrypts the CA private key at rest" autocomplete="new-password">
-      </div>
-      <div>
-        <label for="r_pass2">Confirm passphrase</label>
-        <input id="r_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+    <div class="form-narrow">
+      <div class="form-grid">
+        <div>
+          <label for="r_pass">Passphrase (optional)</label>
+          <input id="r_pass" name="passphrase" type="password" placeholder="Encrypts the CA private key at rest" autocomplete="new-password">
+        </div>
+        <div>
+          <label for="r_pass2">Confirm passphrase</label>
+          <input id="r_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+        </div>
       </div>
     </div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">If set, you'll need this passphrase whenever you issue or sign with this CA. There is no recovery if you forget it.</p>
     <button class="btn" type="submit">Create root CA</button>
+    <details class="adv">
+      <summary>About the passphrase</summary>
+      <div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">If set, you'll need this passphrase whenever you issue or sign with this CA. There is no recovery if you forget it.</p>
+      </div>
+    </details>
+    <details class="adv">
+      <summary>Distributing the root certificate</summary>
+      <div>
+        <p class="muted">Distribute its certificate to clients that need to trust your certs.</p>
+      </div>
+    </details>
   </form>
 </div>
 {{end}}
