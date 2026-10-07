@@ -8,9 +8,11 @@
   {{if $v.Fingerprint}}<p>Selected CA SHA-256 fingerprint (verify out of band): <code>{{$v.Fingerprint}}</code></p>{{end}}
   <p>Create a dedicated leaf-only RSA SCEP intermediate on the <a href="/ca">CA page</a> first.</p>
   <form method="post" action="/admin/scep/unlock">
-    <label for="sca">Select and unlock CA</label>
-    <select id="sca" name="ca" required>{{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.CA}}selected{{end}}>{{.DisplayPath}}</option>{{end}}</select>
-    <label for="spass">CA passphrase (if encrypted)</label><input id="spass" name="passphrase" type="password" autocomplete="off">
+    <div class="form-grid">
+      <div><label for="sca">Select and unlock CA</label>
+      <select id="sca" name="ca" required data-passphrase="spass">{{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.CA}}selected{{end}} data-enc="{{.KeyEnc}}">{{.DisplayPath}}</option>{{end}}</select></div>
+      <div><label for="spass">CA passphrase (if encrypted)</label><input id="spass" name="passphrase" type="password" autocomplete="off"></div>
+    </div>
     <button class="btn" type="submit">Select / unlock in memory</button>
   </form>
   <form method="post" action="/admin/scep/lock"><button class="btn" type="submit">Lock now</button></form>
@@ -22,8 +24,10 @@
   <form method="post" action="/admin/scep/challenge">
     <label for="sprofile">Server profile (policy snapshot)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select>
     <label for="ssans">Exact authorized DNS / IP SANs (comma or newline separated)</label><textarea id="ssans" name="sans" required placeholder="switch.example.net, 192.0.2.10"></textarea>
-    <label for="sdays">Certificate days (bounded by profile and issuer expiry)</label><input id="sdays" name="days" type="number" min="1" max="36500" value="365">
-    <label for="shours">Challenge expiry (hours)</label><input id="shours" name="hours" type="number" min="1" max="168" value="24">
+    <div class="form-grid">
+      <div><label for="sdays">Certificate days (bounded by profile and issuer expiry)</label><input id="sdays" name="days" type="number" min="1" max="36500" value="365"></div>
+      <div><label for="shours">Challenge expiry (hours)</label><input id="shours" name="hours" type="number" min="1" max="168" value="24"></div>
+    </div>
     <button class="btn" type="submit">Create challenge</button>
   </form>
   <p class="muted">Issued SANs are exactly those authorized here, even if absent from the CSR. Extra CSR SANs are rejected. Successful same-transaction / same-CSR retries are retained for seven days. Revoking a challenge does not revoke a certificate.</p>

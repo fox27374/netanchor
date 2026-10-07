@@ -1,9 +1,6 @@
 {{define "content"}}
 <style>
-  .backup-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; max-width:760px; }
-  .backup-confirmation { max-width:370px; }
   .backup-warning { padding:12px 14px; border:1px solid var(--warn-bg); border-radius:8px; background:var(--warn-bg); color:var(--warn-fg); margin-bottom:20px; font-size:13px; line-height:1.5; }
-  @media (max-width:680px) { .backup-fields { grid-template-columns:1fr; } .backup-confirmation { max-width:none; } }
 </style>
 <h2>Backup &amp; Restore</h2>
 <div class="panel">
@@ -12,7 +9,7 @@
   <p class="muted">Choose a password of at least 12 bytes; if lost, the backup cannot be recovered.</p>
   <form method="post" action="/admin/backup">
     <input type="hidden" name="csrf" value="{{.Data}}">
-    <div class="backup-fields">
+    <div class="form-grid">
       <div><label for="backup-password">Backup password</label><input id="backup-password" name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div>
       <div><label for="backup-confirm">Confirm password</label><input id="backup-confirm" name="password_confirm" type="password" autocomplete="new-password" required></div>
     </div>
@@ -34,11 +31,11 @@
   </div>
   <form method="post" action="/admin/restore" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{.Data}}">
-    <div class="backup-fields">
+    <div class="form-grid">
       <div><label for="archive">Encrypted .nab backup (64 MiB archive limit)</label><input id="archive" name="archive" type="file" accept=".nab" required></div>
       <div><label for="restore-password">Backup password</label><input id="restore-password" name="password" type="password" autocomplete="off" required></div>
     </div>
-    <div class="backup-confirmation"><label for="replace">Type REPLACE to confirm full replacement and shutdown</label><input id="replace" name="confirm" autocomplete="off" required pattern="REPLACE"></div>
+    <div class="form-narrow"><label for="replace">Type REPLACE to confirm full replacement and shutdown</label><input id="replace" name="confirm" autocomplete="off" required pattern="REPLACE"></div>
     <button class="btn" type="submit">Replace instance and shut down</button>
     <details class="adv">
       <summary>Restore process and limitations</summary>

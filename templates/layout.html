@@ -64,6 +64,8 @@
   .pill.bad { background:var(--bad-bg); color:var(--bad-fg); }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
   .cardtitle { font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin:0 0 12px; }
+  .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; max-width:760px; }
+  .form-narrow { max-width:370px; }
   details.adv summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:8px; }
   details.adv > div { margin-top:12px; }
   .ident { background:var(--field); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:4px 0 22px; }
@@ -132,6 +134,8 @@
   /* Phones: 16px fields (no iOS zoom on focus), 44px touch targets, tables that stack instead of widening the page. */
   @media (max-width:680px){
     .grid2 { grid-template-columns:1fr; }
+    .form-grid { grid-template-columns:1fr; }
+    .form-narrow { max-width:none; }
     main { padding:20px 16px; }
     .panel { padding:16px; margin-bottom:16px; }
     .userbox { gap:6px; }
