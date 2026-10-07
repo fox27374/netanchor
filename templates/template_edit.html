@@ -35,7 +35,7 @@
       </div>
     </div>
     <label for="t_issuers">Allowed issuer CA IDs (optional, comma separated)</label><input id="t_issuers" name="allowed_issuers" value="{{joinStrings $t.AllowedIssuers}}">
-    <fieldset><legend>Allowed key algorithms</legend><label><input type="checkbox" name="allowed_algorithms" value="ecp256" {{if hasAlgo $t.AllowedAlgos "ecp256"}}checked{{end}} style="width:auto"> ECDSA P-256</label><label><input type="checkbox" name="allowed_algorithms" value="ecp384" {{if hasAlgo $t.AllowedAlgos "ecp384"}}checked{{end}} style="width:auto"> ECDSA P-384</label><label><input type="checkbox" name="allowed_algorithms" value="rsa2048" {{if hasAlgo $t.AllowedAlgos "rsa2048"}}checked{{end}} style="width:auto"> RSA 2048</label><label><input type="checkbox" name="allowed_algorithms" value="rsa4096" {{if hasAlgo $t.AllowedAlgos "rsa4096"}}checked{{end}} style="width:auto"> RSA 4096</label></fieldset>
+    <fieldset><legend>Allowed key algorithms</legend><label><input type="checkbox" name="allowed_algorithms" value="ecp256" {{if hasAlgo $t.AllowedAlgos "ecp256"}}checked{{end}}> ECDSA P-256</label><label><input type="checkbox" name="allowed_algorithms" value="ecp384" {{if hasAlgo $t.AllowedAlgos "ecp384"}}checked{{end}}> ECDSA P-384</label><label><input type="checkbox" name="allowed_algorithms" value="rsa2048" {{if hasAlgo $t.AllowedAlgos "rsa2048"}}checked{{end}}> RSA 2048</label><label><input type="checkbox" name="allowed_algorithms" value="rsa4096" {{if hasAlgo $t.AllowedAlgos "rsa4096"}}checked{{end}}> RSA 4096</label></fieldset>
     <div class="row">
       <div>
         <label for="t_org">Organization (optional)</label>
