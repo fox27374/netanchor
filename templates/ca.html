@@ -118,14 +118,14 @@
 {{if $.IsAdmin}}
 <div class="panel">
   <p class="cardtitle">Create Intermediate CA <span class="muted">(optional)</span></p>
-  <p class="muted">Create an intermediate CA signed by the root or another intermediate. Intermediates can optionally allow sub-CAs (to create nested hierarchies) or restrict to leaf certificates only.</p>
   <details class="adv">
     <summary>Create an intermediate CA</summary>
     <div>
+      <p class="muted">Intermediates can be configured for different purposes: issuing leaf certificates only, issuing sub-intermediates to create nested hierarchies, or dedicated SCEP enrollment. Choose your intermediate's purpose carefully, as this affects which other CAs can use it as an issuer.</p>
       <form method="post" action="/ca/intermediate">
         <label for="i_cn">Common Name</label>
         <input id="i_cn" name="common_name" placeholder="NetAnchor Intermediate CA" required>
-        <div class="row">
+        <div class="form-grid">
           <div>
             <label for="i_org">Organization (optional)</label>
             <input id="i_org" name="organization" placeholder="Acme Corp">
@@ -135,7 +135,7 @@
             <input id="i_country" name="country" placeholder="AT" maxlength="2">
           </div>
         </div>
-        <div class="row">
+        <div class="form-grid">
           <div>
             <label for="i_algo">Key algorithm</label>
             <select id="i_algo" name="algo">
@@ -150,7 +150,7 @@
             <input id="i_days" name="valid_days" type="number" value="1825" min="1">
           </div>
         </div>
-        <div class="row">
+        <div class="form-grid">
           <div>
             <label for="i_parent">Parent CA</label>
             <select id="i_parent" name="parent" data-passphrase="i_parentpass">
@@ -159,22 +159,73 @@
             <p class="muted" style="font-size:13px">Only the root and intermediates created with "Allow sub-CAs" are listed.</p>
           </div>
         </div>
-        <label><input type="checkbox" name="allow_sub" style="width:auto;margin-right:8px"> Allow sub-CAs (can sign intermediates; if unchecked, can only sign leaf certificates)</label>
-        <label><input type="checkbox" name="scep" style="width:auto;margin-right:8px"> Dedicated SCEP intermediate (select RSA 2048/4096 and leave Allow sub-CAs unchecked; adds keyEncipherment)</label>
+        <div style="margin:16px 0 14px; display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:flex-start; gap:10px; margin:0; cursor:pointer; user-select:none;">
+            <input type="checkbox" name="allow_sub" id="i_allow_sub" style="width:auto; height:auto; flex:0 0 auto; margin-top:3px;">
+            <span>
+              <span style="color:var(--text); font-size:13px; font-weight:500;">Allow sub-CAs</span>
+              <p style="margin:4px 0 0; color:var(--muted); font-size:12px;">This intermediate can issue sub-intermediates, creating a nested CA hierarchy.</p>
+            </span>
+          </label>
+          <label style="display:flex; align-items:flex-start; gap:10px; margin:0; cursor:pointer; user-select:none;">
+            <input type="checkbox" name="scep" id="i_scep" style="width:auto; height:auto; flex:0 0 auto; margin-top:3px;">
+            <span>
+              <span style="color:var(--text); font-size:13px; font-weight:500;">Dedicated SCEP intermediate</span>
+              <p style="margin:4px 0 0; color:var(--muted); font-size:12px;">For SCEP enrollment. Requires RSA 2048 or 4096 and cannot issue sub-CAs.</p>
+            </span>
+          </label>
+          <div id="i_purpose_warning" style="display:none; margin-top:4px; padding:10px 12px; border-radius:6px; background:var(--warn-bg); color:var(--warn-fg); border:1px solid var(--warn-fg); font-size:12px;">
+            <span id="i_warning_text"></span>
+          </div>
+        </div>
         <label for="i_parentpass">Parent CA passphrase</label>
         <input id="i_parentpass" name="parent_passphrase" type="password" autocomplete="off">
-        <div class="row">
-          <div>
-            <label for="i_pass">New passphrase for this intermediate (optional)</label>
-            <input id="i_pass" name="passphrase" type="password" autocomplete="new-password">
-          </div>
-          <div>
-            <label for="i_pass2">Confirm passphrase</label>
-            <input id="i_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+        <div class="form-narrow">
+          <div class="form-grid">
+            <div>
+              <label for="i_pass">New passphrase for this intermediate (optional)</label>
+              <input id="i_pass" name="passphrase" type="password" autocomplete="new-password">
+            </div>
+            <div>
+              <label for="i_pass2">Confirm passphrase</label>
+              <input id="i_pass2" name="passphrase_confirm" type="password" autocomplete="new-password">
+            </div>
           </div>
         </div>
         <button class="btn" type="submit">Create intermediate CA</button>
       </form>
+      <script>
+        (function() {
+          var allowSubCAs = document.getElementById('i_allow_sub');
+          var scep = document.getElementById('i_scep');
+          var algo = document.querySelector('select[name="algo"]');
+          var warning = document.getElementById('i_purpose_warning');
+          var warningText = document.getElementById('i_warning_text');
+
+          function checkInvalid() {
+            warning.style.display = 'none';
+
+            if (!scep.checked) return;
+
+            // SCEP selected - check for violations
+            if (allowSubCAs.checked) {
+              warning.style.display = 'block';
+              warningText.textContent = 'SCEP intermediates cannot allow sub-CAs.';
+              return;
+            }
+
+            if (algo.value !== 'rsa2048' && algo.value !== 'rsa4096') {
+              warning.style.display = 'block';
+              warningText.textContent = 'SCEP intermediates require RSA 2048 or 4096.';
+              return;
+            }
+          }
+
+          allowSubCAs.addEventListener('change', checkInvalid);
+          scep.addEventListener('change', checkInvalid);
+          algo.addEventListener('change', checkInvalid);
+        })();
+      </script>
     </div>
   </details>
 </div>
