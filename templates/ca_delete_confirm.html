@@ -3,7 +3,7 @@
 <div class="panel">
   <h2 style="color:var(--err)">Delete CA: {{$data.CommonName}}</h2>
 
-  <div class="alert err">
+  <div class="alert err" role="alert">
     <strong>Warning:</strong> this moves <strong>{{$data.CommonName}}</strong>{{if or $data.SubCAs $data.SubCerts}} and everything listed below{{end}} to the trash folder. Issued certificates stay valid until they expire (there is no revocation).
   </div>
 
@@ -35,7 +35,7 @@
     </p>
     <div class="row">
       <div style="flex:2">
-        <input type="text" name="confirm_name" placeholder="{{$data.CommonName}}" required autofocus>
+        <input type="text" name="confirm_name" aria-label="Common Name to confirm" placeholder="{{$data.CommonName}}" required autofocus>
       </div>
     </div>
     <div style="margin-top:20px">

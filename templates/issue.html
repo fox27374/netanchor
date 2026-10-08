@@ -6,7 +6,7 @@
     <div class="form-grid" style="align-items:start">
     {{if .Data}}
     <div>
-    <label for="template">Certificate profile (required)</label>
+    <label for="template">Certificate profile</label>
     <select id="template" name="template" required>
       <option value="">— select profile —</option>
       <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{end}}

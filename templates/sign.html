@@ -4,7 +4,7 @@
   <p class="muted">NetAnchor verifies the request signature and issues a certificate signed by your CA.</p>
   <form method="post" action="/sign" enctype="multipart/form-data">
     {{if .Data}}
-    <label for="template">Certificate profile (required)</label>
+    <label for="template">Certificate profile</label>
     <select id="template" name="template" required>
       <option value="">— select profile —</option>
       <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{end}}

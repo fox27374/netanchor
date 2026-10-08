@@ -23,13 +23,15 @@
   .nav-group a { padding-left:28px; }
   .nav-secondary { border-top:1px solid var(--line); margin-top:18px; padding-top:14px; }
   .menu-toggle { display:none; background:transparent; border:1px solid var(--line); border-radius:8px; color:var(--accent); min-height:44px; padding:0 14px; font:inherit; cursor:pointer; }
-  a:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
   main { flex:1; min-width:0; width:100%; max-width:1600px; margin:0 auto; padding:32px; }
   h2 { font-weight:600; margin-top:0; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; margin-bottom:24px; }
   label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
   input, select, textarea { width:100%; padding:10px 12px; background:var(--field); border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; }
   textarea { resize:vertical; min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  label:has(+ input:required)::after, label:has(+ select:required)::after, label:has(+ textarea:required)::after { content:" *"; color:var(--err); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
   input:required:invalid:not([type=checkbox]), select:required:invalid, textarea:required:invalid { border-color:var(--err); }
   .row { display:flex; gap:16px; flex-wrap:wrap; }
   .row > div { flex:1; min-width:180px; }
@@ -241,7 +243,7 @@
 </aside>
 {{end}}
 <main>
-  {{if .Error}}<div class="alert err">{{.Error}}</div>{{end}}
+  {{if .Error}}<div class="alert err" role="alert">{{.Error}}</div>{{end}}
   {{if .Flash}}
   <aside class="toast alert ok" role="status" aria-live="polite">
     <div><strong>{{.Flash.Title}}</strong><p>{{.Flash.Body}}</p></div>

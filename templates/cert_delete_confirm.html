@@ -3,7 +3,7 @@
 <div class="panel">
   <h2 style="color:var(--err)">Delete Certificate</h2>
 
-  <div class="alert err">
+  <div class="alert err" role="alert">
     Delete {{if $cert.CommonName}}{{$cert.CommonName}}{{else}}Certificate {{$cert.Serial}}{{end}}?
   </div>
 
