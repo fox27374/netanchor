@@ -12,7 +12,7 @@ services:
   netanchor:
     # Pull the published multi-arch image from GHCR (amd64 / arm64 / armv7 are
     # selected automatically). To build locally instead, see the Containerfile.
-    image: ghcr.io/fox27374/netanchor:1.6.3
+    image: ghcr.io/fox27374/netanchor:1.6.4
     container_name: netanchor
     # A successful instance restore shuts down after completing its response.
     # This policy starts it again with restored authentication/TLS/SCEP state.
