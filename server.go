@@ -34,6 +34,7 @@ type Server struct {
 	flashMu     sync.Mutex
 	flashes     map[string]caFlash
 	scep        *SCEPService
+	gnoiAllow   []*net.IPNet // NETANCHOR_GNOI_ALLOW; empty refuses every device target
 	backupMu    sync.Mutex
 	restart     chan struct{}
 	restartOnce sync.Once
@@ -50,7 +51,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "backup"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -76,6 +77,8 @@ func (s *Server) Routes() http.Handler {
 	}
 	mux.HandleFunc("GET /admin/scep", s.handleSCEPAdmin)
 	mux.HandleFunc("POST /admin/scep/{action}", s.handleSCEPAdmin)
+	mux.HandleFunc("GET /admin/gnoi", s.handleGNOIAdmin)
+	mux.HandleFunc("POST /admin/gnoi/{action}", s.handleGNOIAdmin)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /tools", s.handleTools)
 	mux.HandleFunc("POST /tools", s.handleToolsDecode)
@@ -626,6 +629,7 @@ type detailsPage struct {
 	Chain          []chainStep
 	TemplateName   string
 	TemplatePolicy CertTemplate
+	Pushes         []DevicePush
 }
 
 // chainStep is one box in the chain schematic, root first. Href is empty for
@@ -694,6 +698,7 @@ func (s *Server) handleCertDetails(w http.ResponseWriter, r *http.Request) {
 		CanChain:     canChain,
 		CertPEM:      string(pemBytes),
 		TemplateName: rec.TemplateName, TemplatePolicy: rec.TemplatePolicy,
+		Pushes: rec.Pushes,
 	}
 	if rec.IssuerID != "" {
 		if chain := s.caChain(rec.IssuerID); chain != nil {

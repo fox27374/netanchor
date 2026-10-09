@@ -35,6 +35,16 @@ type CertRecord struct {
 	TemplateName   string       `json:"template_name,omitempty"`
 	TemplatePolicy CertTemplate `json:"template_policy,omitempty"`
 	Provenance     string       `json:"provenance,omitempty"`
+	Pushes         []DevicePush `json:"pushes,omitempty"`
+}
+
+// DevicePush is one gNOI install attempt for a certificate. Credentials are never stored.
+type DevicePush struct {
+	Target  string    `json:"target"` // host:port of the device gRPC server
+	CertID  string    `json:"cert_id"`
+	Admin   string    `json:"admin"` // NetAnchor user who ran the push
+	Time    time.Time `json:"time"`
+	Outcome string    `json:"outcome"`
 }
 
 // Store is a tiny file-backed persistence layer.
@@ -231,6 +241,23 @@ func (s *Store) AddRecord(rec CertRecord) error {
 	}
 	recs = append(recs, rec)
 	return s.saveIndex(recs)
+}
+
+// AddPush appends a device push outcome to the record for serial.
+func (s *Store) AddPush(serial string, p DevicePush) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recs, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	for i := range recs {
+		if recs[i].Serial == serial {
+			recs[i].Pushes = append(recs[i].Pushes, p)
+			return s.saveIndex(recs)
+		}
+	}
+	return fmt.Errorf("no certificate with serial %s", serial)
 }
 
 // Records returns all records sorted newest-first.

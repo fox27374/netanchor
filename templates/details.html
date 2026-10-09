@@ -58,6 +58,7 @@
     <tr><th>SHA-256 fingerprint</th><td class="wrap">{{$i.SHA256}}</td></tr>
     <tr><th>SHA-1 fingerprint</th><td class="wrap">{{$i.SHA1}}</td></tr>
   </table>
+  {{range $d.Pushes}}<p class="muted">Pushed to {{.Target}} (certificate id {{.CertID}}) at {{.Time.Format "2006-01-02 15:04 MST"}} by {{.Admin}}: {{.Outcome}}</p>{{end}}
 
   {{if and $d.IsCAView (ne $d.CAID "root") $.IsAdmin}}
   <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--line)">

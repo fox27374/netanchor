@@ -60,6 +60,11 @@ func main() {
 	}
 
 	srv := NewServer(store, auth)
+	gnoiAllow, err := parseGNOIAllow(os.Getenv("NETANCHOR_GNOI_ALLOW"))
+	if err != nil {
+		log.Fatalf("NETANCHOR_GNOI_ALLOW: %v", err)
+	}
+	srv.gnoiAllow = gnoiAllow
 	if err := srv.scep.startup(os.Getenv("NETANCHOR_SCEP_SECRET_FILE")); err != nil {
 		log.Printf("SCEP startup recovery/unlock failed; enrollment remains locked: %v", err)
 	}

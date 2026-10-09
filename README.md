@@ -103,6 +103,7 @@ the admin account.
 |         | `NETANCHOR_DISABLE_AUTH`  | —                  | Set to `1` to disable login (trusted local use only) |
 |         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
 |         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
+|         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. Empty refuses every target |
 
 ## SCEP for switch HTTPS and gNMI
 
@@ -261,6 +262,38 @@ GetNextCACert, CRL/OCSP, certificate revocation, or automated device service rel
 Re-enrollment requires a new challenge. Older Cisco SAN emission, AES support,
 chain handling and HTTPS/gNMI reuse remain unverified; see [RESEARCH-SCEP.md](RESEARCH-SCEP.md)
 for source references and release-specific uncertainties.
+
+## Push to device (gNOI), IOS-XE
+
+Admins can push a NetAnchor-issued certificate and its CA chain to a switch over
+gNOI Certificate Management (`Admin > Push to device (gNOI)`). NetAnchor only makes
+outbound gRPC connections; it opens no new listener.
+
+- The device generates an RSA 2048 key and CSR (`Install` stream, `GenerateCSR`).
+  NetAnchor signs the CSR under the selected CA and profile, using the normal
+  sign-CSR rules. SANs come from the form, and SANs and extensions in the device CSR
+  are ignored. The chain is sent with `LoadCertificate`. No private key exists in
+  NetAnchor.
+- Country, state and organization are required; IOS-XE refuses CSR generation without them.
+- The device server is verified by trusting the selected NetAnchor CA, by a
+  fingerprint you fetch and confirm first, or not at all (unverified mode warns that
+  the password can be intercepted).
+- An existing certificate id is refused. Only installs are supported: no rotate,
+  revoke, CA bundle load or key import.
+- **Installing a certificate can rebind the switch's gNMI/gNOI server to it.** The page
+  requires you to acknowledge this. Revoking that certificate later can take the
+  server down.
+- After install, NetAnchor reconnects and lists certificates for up to 30 seconds. If
+  the device does not answer, the push is reported as "installed, could not verify",
+  not as failed. The whole push is capped at 60 seconds, so a slow connect shortens
+  the verify window.
+- Each push is recorded on the certificate's details page as "Pushed to <host>".
+  Credentials are never stored or logged. Pushes that fail before signing leave no record.
+- Targets are checked against `NETANCHOR_GNOI_ALLOW`. Every address the host
+  resolves to must be inside the list, and NetAnchor dials the checked address.
+- Unit tests use a fake in-process gNOI server. A Phase 0 spike on a Catalyst 9000
+  (IOS-XE 17.18.2) confirmed the CSR flow; the end-to-end push is not yet verified on
+  hardware. NX-OS is untested.
 
 ## Run in a container (Podman)
 
