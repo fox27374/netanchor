@@ -15,10 +15,13 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 - Flow (CSR, per Phase 0): `CanGenerateCSR`, then `Install` stream (new cert_id) with
   `GenerateCSR`; NetAnchor signs the returned CSR (chosen CA and profile, under
   sign-CSR rules) and sends `LoadCertificate` (cert + CA chain, no key). `Rotate` for
-  an existing cert_id (untested). Private keys never exist in NetAnchor.
-- Optional `LoadCertificateAuthorityBundle` checkbox (default on); result reported
-  separately from the certificate install.
-- Form: host:port; auth (user/password, mTLS, or both; credentials used once, never
+  an existing cert_id (untested, not in Phase 1). Private keys never exist in
+  NetAnchor. SANs come from the form; any SANs in the device CSR are ignored.
+- Phase 1 sends the CA chain only inside `LoadCertificate`. No
+  `LoadCertificateAuthorityBundle` (it squashes the device's trusted CAs; untested).
+- Phase 1 is `Install` only: an existing cert_id is refused with a clear message.
+  IOS-XE only (NX-OS documented as untested). Auth is user/password only; mTLS later.
+- Form: host:port; auth (user/password; credentials used once, never
   stored); server verification (trust selected NetAnchor CA, or confirm fingerprint
   on first use; explicit "unverified" checkbox warns that credentials are exposed);
   CA + profile; CN + SANs; Country, State, Organization (required by IOS-XE for the
@@ -27,8 +30,11 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 - Step-by-step result display: connect, auth, capabilities, generate, sign, install,
   verify.
 - Warning on the page: installing a cert can rebind the switch's own gNMI/gNOI server
-  to it, and revoking it can take that server down. No revoke feature in this phase.
-- Verify the install on a fresh connection (open calls are reset after a load).
+  to it, and revoking it can take that server down. A required checkbox ("this may
+  rebind the gRPC server") gates the push. No revoke feature in this phase.
+- Verify the install on a fresh connection (open calls are reset after a load), retrying
+  up to 30 s. If it never answers, report "installed, could not verify, check the
+  device (it may have rebound its gRPC server)", not a failed push.
 - `NETANCHOR_GNOI_ALLOW`: CIDR allowlist of permitted targets; empty = refuse all.
   Guards against SSRF since the feature cannot be disabled.
 - Timeouts: 10 s connect, 60 s overall, cancel button. On failure leave the device
