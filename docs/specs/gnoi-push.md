@@ -12,22 +12,23 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 ## Acceptance criteria
 - Admin-only "Push to device (gNOI)" page modelled on `scep_admin.go`. Always on,
   no enable flag (same as SCEP). Outbound gRPC only: no new listener or port.
-- Preferred flow: NetAnchor generates the key in memory, signs it (chosen CA and
-  profile), pushes certificate + key via `Install` (new cert_id) or `Rotate`
-  (existing cert_id, device rolls back on failure). Fallback flow: device generates
-  the CSR (`CanGenerateCSR`/`GenerateCSR`), NetAnchor signs under sign-CSR rules.
-  Phase 0 decides which is primary.
+- Flow (CSR, per Phase 0): `CanGenerateCSR`, then `Install` stream (new cert_id) with
+  `GenerateCSR`; NetAnchor signs the returned CSR (chosen CA and profile, under
+  sign-CSR rules) and sends `LoadCertificate` (cert + CA chain, no key). `Rotate` for
+  an existing cert_id (untested). Private keys never exist in NetAnchor.
 - Optional `LoadCertificateAuthorityBundle` checkbox (default on); result reported
   separately from the certificate install.
 - Form: host:port; auth (user/password, mTLS, or both; credentials used once, never
   stored); server verification (trust selected NetAnchor CA, or confirm fingerprint
-  on first use; explicit "insecure" only for pushes carrying no key); CA + profile;
-  CN + SANs; cert_id (default sanitised CN); key algorithm dropdown (ECDSA P-256
-  default, RSA 2048/3072, constrained by profile policy).
+  on first use; explicit "unverified" checkbox warns that credentials are exposed);
+  CA + profile; CN + SANs; Country, State, Organization (required by IOS-XE for the
+  CSR); cert_id (default sanitised CN); key size fixed to RSA 2048 (device offers RSA
+  only), checked against profile policy.
 - Step-by-step result display: connect, auth, capabilities, generate, sign, install,
   verify.
-- Generated private key is never written to disk, store, or logs. Pushing a key
-  requires a verified server connection.
+- Warning on the page: installing a cert can rebind the switch's own gNMI/gNOI server
+  to it, and revoking it can take that server down. No revoke feature in this phase.
+- Verify the install on a fresh connection (open calls are reset after a load).
 - `NETANCHOR_GNOI_ALLOW`: CIDR allowlist of permitted targets; empty = refuse all.
   Guards against SSRF since the feature cannot be disabled.
 - Timeouts: 10 s connect, 60 s overall, cancel button. On failure leave the device
