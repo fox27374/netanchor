@@ -10,4 +10,4 @@ resources:
   - httproute.yaml
 images:
   - name: ghcr.io/fox27374/netanchor
-    newTag: 1.6.4
+    newTag: 1.6.5
