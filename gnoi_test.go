@@ -299,6 +299,9 @@ func TestGNOIPushHappyPath(t *testing.T) {
 	if rec.Serial == "" || len(rec.Pushes) != 1 {
 		t.Fatalf("record %+v: want one push", rec)
 	}
+	if skew := time.Since(rec.NotBefore); skew < 23*time.Hour || skew > 25*time.Hour {
+		t.Fatalf("NotBefore is %v in the past, want about 24h to tolerate device clock skew", skew)
+	}
 	if rec.Pushes[0].Outcome != "installed and verified" || rec.Pushes[0].Target != e.target || rec.Pushes[0].Admin != "tester" {
 		t.Fatalf("push record = %+v", rec.Pushes[0])
 	}

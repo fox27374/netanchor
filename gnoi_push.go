@@ -33,6 +33,7 @@ const (
 	gnoiConnectTimeout = 10 * time.Second
 	gnoiPushTimeout    = 60 * time.Second
 	gnoiVerifyAttempt  = 5 * time.Second
+	gnoiBackdate       = 24 * time.Hour // switch clocks are often off; the lab switch ran 12 min behind
 )
 
 // Verify retry window and spacing. Vars so tests can shorten them.
@@ -291,7 +292,7 @@ func gnoiSignCSR(st *Store, req gnoiPushRequest, csrPEM []byte, caCert *x509.Cer
 	signed.DNSNames, signed.IPAddresses = req.DNSNames, req.IPs
 	signed.EmailAddresses, signed.URIs = nil, nil
 	signed.Extensions = nil
-	rec, der, err := signCSRWithoutPersistence(&signed, SignCSRParams{IssuerID: req.CAID, ValidDays: req.ValidDays, Template: req.Template, TemplateName: req.Template.Name, Profile: req.Template.Profile}, caCert, caKey, false)
+	rec, der, err := signCSRWithoutPersistence(&signed, SignCSRParams{IssuerID: req.CAID, ValidDays: req.ValidDays, Template: req.Template, TemplateName: req.Template.Name, Profile: req.Template.Profile, Backdate: gnoiBackdate}, caCert, caKey, false)
 	if err != nil {
 		return CertRecord{}, nil, err
 	}

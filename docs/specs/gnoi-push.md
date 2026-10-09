@@ -2,7 +2,7 @@
 
 Approval: grilled with the user and summarised; user said "save the spec". Phase 0
 (spike) done 2026-10-09 on lab switch 172.24.80.240 (Cat9K IOS-XE 17.18.2); results
-under "Phase 0 results". Phase 1 not started.
+under "Phase 0 results". Phase 1 shipped in 1.6.5; Phase 2 lab run done, see "Phase 2 results".
 
 ## Goal
 Admin pushes a NetAnchor-issued certificate (and CA bundle) to a switch over gNOI
@@ -104,3 +104,14 @@ untracked.
 
 ## Existing local changes to preserve
 Only untracked `.claude/`.
+
+## Phase 2 results (2026-10-09, lab switch, NetAnchor run locally against it)
+- Full push through the real handler succeeded: fingerprint probe (matches `openssl
+  s_client`), connect, auth, capabilities, CSR, sign, `Install`, verify on a fresh
+  connection. `GetCertificates` independently lists the new cert_id.
+- First attempt failed at install with `Internal: NOT_VALID_LIFETIME`: the switch clock
+  was ~12 min behind and NetAnchor backdated leafs only 5 min. Fix: `SignCSRParams.Backdate`;
+  gNOI pushes backdate 24 h (`gnoiBackdate`). Other signing paths keep 5 min.
+- Confirmed side effect: after the push the switch serves the pushed cert on 57400
+  (gnxi rebound). The service stayed up because the cert was valid.
+- Still untested on hardware: `Rotate`, CA bundle, NX-OS, mTLS.

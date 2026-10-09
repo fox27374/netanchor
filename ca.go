@@ -424,6 +424,7 @@ type SignCSRParams struct {
 	CAPassphrase string
 	Template     CertTemplate
 	TemplateName string
+	Backdate     time.Duration // NotBefore margin for devices with skewed clocks; 0 means 5 minutes
 }
 
 // SignCSR validates a PEM-encoded CSR and issues a certificate for it signed by
@@ -482,10 +483,15 @@ func signCSRWithoutPersistence(csr *x509.CertificateRequest, p SignCSRParams, ca
 	}
 
 	now := time.Now()
+	backdate := p.Backdate
+	if backdate == 0 {
+		backdate = 5 * time.Minute
+	}
+	notBefore := now.Add(-backdate)
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               csr.Subject,
-		NotBefore:             now.Add(-5 * time.Minute),
+		NotBefore:             notBefore,
 		NotAfter:              now.AddDate(0, 0, p.ValidDays),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           extKeyUsage(p.Profile),
