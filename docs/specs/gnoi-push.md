@@ -1,7 +1,8 @@
 # gNOI certificate push to switches
 
 Approval: grilled with the user and summarised; user said "save the spec". Phase 0
-(spike) is blocked until the user provides a host that can reach the lab switch.
+(spike) done 2026-10-09 on lab switch 172.24.80.240 (Cat9K IOS-XE 17.18.2); results
+under "Phase 0 results". Phase 1 not started.
 
 ## Goal
 Admin pushes a NetAnchor-issued certificate (and CA bundle) to a switch over gNOI
@@ -48,12 +49,37 @@ README.md. Reuse: ca.go signing, certtemplates.go / profile_policy.go.
   (larger binary is fine); repo does not vendor.
 - Dev host ataltpr06 cannot reach the switch. Lab verification needs the whole stack
   deployed on a host that can; user is arranging access.
-- Unverified: whether IOS-XE/NX-OS accept an imported `key_pair`. If rejected, the
-  CSR flow becomes primary and a small one-time CLI step (e.g. trustpoint) remains.
+- NX-OS is untested; Phase 0 covered IOS-XE only.
+
+## Phase 0 results (IOS-XE 17.18.2, gRPC 57400, TLS + username/password metadata)
+- gNOI cert service works: `GetCertificates`, `CanGenerateCSR` (RSA 2048). `system.Time`
+  is Unimplemented (not needed).
+- Importing a client key (`key_pair` via `Install` or `Rotate`, PKCS#1 RSA PEM, self-
+  signed cert) fails with `Aborted: Timeout waiting for event`; nothing is installed.
+  **The CSR flow is therefore primary**; the "preferred" key-generated-in-memory flow in
+  the acceptance criteria does not apply to IOS-XE. No private key ever leaves NetAnchor
+  or the device, so the "key never persisted" criterion is moot for this flow.
+- CSR flow that works: `Install` stream, `GenerateCSR` (cert_id, `CSRParams` type
+  X509, KT_RSA, min key size 2048, CN) returns a PEM CSR; sign it; send
+  `LoadCertificate` (cert + `ca_certificates`, no key, no certificate_id). `Install`
+  has no finalize message. The device rejects the CSR request with `InvalidArgument`
+  unless Country, State and Organization are set, so the form must collect them.
+- `Rotate` on an unknown cert_id returns `NotFound`; use `Install` for new ids, `Rotate`
+  only for existing ones (untested).
+- Only RSA is offered (proto `KeyType` has just `KT_RSA`); the ECDSA default and key
+  algorithm dropdown in the form do not apply to this flow.
+- **Side effect:** installing a cert makes the switch bind its own gNMI/gNOI server to
+  it (`gnxi secure-trustpoint <cert_id>`). Revoking that cert removed the trustpoint
+  and port 57400 stopped listening until fixed on the CLI. The page must warn about
+  this, must not offer revoke in this phase, and lab tests need a cert_id the user is
+  prepared to rebind.
+- Open connections are reset right after a load (`Unavailable: Cancelling all calls`),
+  so verify the install on a fresh connection.
+- Untested: `Rotate` on an existing id, `LoadCertificateAuthorityBundle`, NX-OS.
 
 ## Phases (each its own patch release)
 0. Throwaway spike on the lab switch: Capabilities, CanGenerateCSR, GetCertificates,
-   trial Install with a client-generated key. Not merged as a feature.
+   trial Install with a client-generated key. Not merged as a feature. DONE.
 1. Feature, unit-tested against a fake in-process gNOI server (Install, Rotate,
    rollback, errors, allowlist, key never persisted).
 2. Verification on the lab switch.
