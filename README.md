@@ -266,7 +266,7 @@ for source references and release-specific uncertainties.
 ## Push to device (gNOI), IOS-XE
 
 Admins can push a NetAnchor-issued certificate and its CA chain to a switch over
-gNOI Certificate Management (`Admin > Push to device (gNOI)`). NetAnchor only makes
+gNOI Certificate Management (`Device Management > Push (gNOI)`). NetAnchor only makes
 outbound gRPC connections; it opens no new listener.
 
 - The device generates an RSA 2048 key and CSR (`Install` stream, `GenerateCSR`).

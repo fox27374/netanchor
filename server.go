@@ -51,7 +51,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup", "certificates"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -62,7 +62,7 @@ func NewServer(store *Store, auth *Auth) *Server {
 			}
 			return false
 		}}).ParseFS(
-			templateFS, "templates/layout.html", "templates/"+p+".html"))
+			templateFS, "templates/layout.html", "templates/cert_list.html", "templates/"+p+".html"))
 	}
 	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash), scep: newSCEPService(store), restart: make(chan struct{})}
 }
@@ -80,6 +80,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /admin/gnoi", s.handleGNOIAdmin)
 	mux.HandleFunc("POST /admin/gnoi/{action}", s.handleGNOIAdmin)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
+	mux.HandleFunc("GET /certificates", s.handleCertificates)
 	mux.HandleFunc("GET /tools", s.handleTools)
 	mux.HandleFunc("POST /tools", s.handleToolsDecode)
 	mux.HandleFunc("POST /tools/check-password", s.handleToolsPasswordCheck)
@@ -246,24 +247,46 @@ func (s *Server) getIssueCAs() []caOptionData {
 
 // --- dashboard -----------------------------------------------------------
 
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+// certListData feeds the certificate list shared by the Dashboard and /certificates.
+type certListData struct {
+	Recs  []CertRecord
+	Paths map[string]string // CA id -> "Root › A › B"
+}
+
+func (s *Server) certList() (certListData, error) {
 	recs, err := s.store.Records()
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return certListData{}, err
 	}
 	paths := map[string]string{}
 	cas, _ := s.store.CAs()
 	for _, ca := range cas {
 		paths[ca.ID] = ca.Path
 	}
+	return certListData{recs, paths}, nil
+}
+
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	data, err := s.certList()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	d := s.base(r, "Dashboard", "dashboard")
 	d.Flash = s.takeFlash(w, r, issueFlashCookie, "/")
-	d.Data = struct {
-		Recs  []CertRecord
-		Paths map[string]string // CA id -> "Root › A › B"
-	}{recs, paths}
+	d.Data = data
 	s.render(w, "dashboard", d)
+}
+
+func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
+	data, err := s.certList()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	d := s.base(r, "Issued certificates", "certificates")
+	d.Data = data
+	s.render(w, "certificates", d)
 }
 
 // --- CA management -------------------------------------------------------

@@ -231,16 +231,22 @@
 <aside class="sidebar" id="sidebar">
   <nav aria-label="Main navigation">
     <a href="/" {{if eq .Active "dashboard"}}class="active" aria-current="page"{{end}}>Dashboard</a>
-    <a href="/ca" {{if eq .Active "ca"}}class="active" aria-current="page"{{end}}>CA</a>
-    {{if .IsAdmin}}
     <div class="nav-group" role="group" aria-labelledby="certificates-nav">
-      <h2 class="nav-heading" id="certificates-nav">Certificates</h2>
+      <h2 class="nav-heading" id="certificates-nav">Certificate Management</h2>
+      <a href="/ca" {{if eq .Active "ca"}}class="active" aria-current="page"{{end}}>CA</a>
+      {{if .IsAdmin}}
       <a href="/issue" {{if eq .Active "issue"}}class="active" aria-current="page"{{end}}>Issue Certificate</a>
       <a href="/sign" {{if eq .Active "sign"}}class="active" aria-current="page"{{end}}>Sign CSR</a>
       <a href="/templates" {{if eq .Active "templates"}}class="active" aria-current="page"{{end}}>Templates</a>
+      {{end}}
+      <a href="/certificates" {{if eq .Active "certificates"}}class="active" aria-current="page"{{end}}>Issued certificates</a>
     </div>
-    <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
-    {{if .IsAdmin}}<a href="/admin/gnoi" {{if eq .Active "gnoi"}}class="active" aria-current="page"{{end}}>Push to device (gNOI)</a>{{end}}
+    <div class="nav-group" role="group" aria-labelledby="devices-nav">
+      <h2 class="nav-heading" id="devices-nav">Device Management</h2>
+      {{if .IsAdmin}}<a href="/admin/gnoi" {{if eq .Active "gnoi"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
+      <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
+    </div>
+    {{if .IsAdmin}}
     <div class="nav-group" role="group" aria-labelledby="management-nav">
       <h2 class="nav-heading" id="management-nav">Management</h2>
       <a href="/users" {{if eq .Active "users"}}class="active" aria-current="page"{{end}}>Users</a>
