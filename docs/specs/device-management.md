@@ -48,8 +48,10 @@ certificates to one or many devices over gNOI without touching the device CLI.
   timestamp. No background polling.
 - Roles: admins create/edit/delete devices, manage credentials, run tests and pushes.
   Normal users can view devices and their snapshots.
-- `NETANCHOR_GNOI_ALLOW` is removed. Accepted risk (user decision): any admin can make
-  NetAnchor open gRPC connections, with stored credentials, to any host.
+- `NETANCHOR_GNOI_ALLOW` stays (user decision 2026-10-10, replacing the earlier
+  "remove it"): every device connection (probe, test, refresh, push) is checked
+  against it. To manage all devices, set `NETANCHOR_GNOI_ALLOW=0.0.0.0/0,::/0`;
+  narrow it to management networks where possible. Empty still refuses all.
 
 ## Device certificate definitions
 - Fields: name, issuing CA, profile (existing templates), Country, State,
@@ -85,7 +87,7 @@ devices, revoke on devices.
 
 ## Phases (each its own patch release, each lab-tested before the next)
 - A: menu split; Devices with encrypted credentials, pinning, Test connection, live
-  certificate list; backup/restore; allowlist removed.
+  certificate list; backup/restore; allowlist kept (allow-all documented).
 - B: definitions; multi-device push with re-pin and per-device results; old page
   removed.
 - C: `Rotate` spike on the lab switch (needs the user's go-ahead), then renewal.
