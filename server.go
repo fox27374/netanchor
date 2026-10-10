@@ -62,7 +62,7 @@ func NewServer(store *Store, auth *Auth) *Server {
 			}
 			return false
 		}}).ParseFS(
-			templateFS, "templates/layout.html", "templates/cert_list.html", "templates/"+p+".html"))
+			templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
 	return &Server{store: store, auth: auth, templates: tpls, flashes: make(map[string]caFlash), scep: newSCEPService(store), restart: make(chan struct{})}
 }
@@ -247,45 +247,42 @@ func (s *Server) getIssueCAs() []caOptionData {
 
 // --- dashboard -----------------------------------------------------------
 
-// certListData feeds the certificate list shared by the Dashboard and /certificates.
-type certListData struct {
-	Recs  []CertRecord
-	Paths map[string]string // CA id -> "Root › A › B"
-}
-
-func (s *Server) certList() (certListData, error) {
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	recs, err := s.store.Records()
 	if err != nil {
-		return certListData{}, err
+		s.fail(w, r, err)
+		return
 	}
 	paths := map[string]string{}
 	cas, _ := s.store.CAs()
 	for _, ca := range cas {
 		paths[ca.ID] = ca.Path
 	}
-	return certListData{recs, paths}, nil
-}
-
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	data, err := s.certList()
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
 	d := s.base(r, "Dashboard", "dashboard")
 	d.Flash = s.takeFlash(w, r, issueFlashCookie, "/")
-	d.Data = data
+	d.Data = struct {
+		Recs  []CertRecord
+		Paths map[string]string // CA id -> "Root › A › B"
+	}{recs, paths}
 	s.render(w, "dashboard", d)
 }
 
 func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
-	data, err := s.certList()
+	recs, err := s.store.Records()
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	paths := map[string]string{}
+	cas, _ := s.store.CAs()
+	for _, ca := range cas {
+		paths[ca.ID] = ca.Path
+	}
 	d := s.base(r, "Issued certificates", "certificates")
-	d.Data = data
+	d.Data = struct {
+		Recs  []CertRecord
+		Paths map[string]string // CA id -> "Root › A › B"
+	}{recs, paths}
 	s.render(w, "certificates", d)
 }
 
