@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -142,6 +143,9 @@ func validateBackup(dir string) error {
 				return errors.New("invalid profile issuer")
 			}
 		}
+	}
+	if err := validateDevices(dir); err != nil {
+		return err
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "trash"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -284,6 +288,30 @@ func validateBackup(dir string) error {
 				return errors.New("pending SCEP PEM mismatch")
 			}
 		}
+	}
+	return nil
+}
+
+// validateDevices checks device records like the device store writes them. Stored
+// credential blobs are opaque here; they are checked against the live key later.
+func validateDevices(dir string) error {
+	var devs []Device
+	if err := backupJSON(filepath.Join(dir, "devices.json"), &devs); err != nil {
+		return err
+	}
+	if len(devs) > 10000 {
+		return errors.New("too many devices")
+	}
+	ids, names := map[string]bool{}, map[string]bool{}
+	for _, d := range devs {
+		if d.ID == "" || ids[d.ID] || d.Name == "" || names[d.Name] || len(d.Name) > 256 ||
+			net.ParseIP(d.ManagementIP) == nil || d.Port < 1 || d.Port > 65535 ||
+			(d.Platform != devicePlatformIOSXE && d.Platform != devicePlatformNXOS) ||
+			(d.Verify != gnoiVerifyCA && d.Verify != gnoiVerifyFingerprint && d.Verify != gnoiVerifyUnverified) ||
+			(d.Verify == gnoiVerifyCA && !backupCAID(d.CAID)) || len(d.Credentials) > 64<<10 {
+			return errors.New("invalid device record")
+		}
+		ids[d.ID], names[d.Name] = true, true
 	}
 	return nil
 }
