@@ -86,6 +86,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /devices/{id}", s.handleDeviceDetail)
 	mux.HandleFunc("GET /devices/{id}/edit", s.handleDeviceEdit)
 	mux.HandleFunc("POST /devices/{id}/delete", s.handleDeviceDelete)
+	mux.HandleFunc("POST /devices/{id}/test", s.handleDeviceTest)
+	mux.HandleFunc("POST /devices/{id}/refresh", s.handleDeviceRefresh)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /certificates", s.handleCertificates)
 	mux.HandleFunc("GET /tools", s.handleTools)

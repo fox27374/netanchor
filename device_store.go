@@ -27,24 +27,43 @@ var (
 // Device is one network device NetAnchor can push certificates to. Credentials
 // are a sealed JSON blob (AES-256-GCM); the password is never stored in clear.
 type Device struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	FQDN         string    `json:"fqdn,omitempty"`
-	ManagementIP string    `json:"management_ip"`
-	Port         int       `json:"port"`
-	Platform     string    `json:"platform"`
-	Site         string    `json:"site,omitempty"`
-	Tags         []string  `json:"tags,omitempty"`
-	Notes        string    `json:"notes,omitempty"`
-	Model        string    `json:"model,omitempty"`
-	Serial       string    `json:"serial,omitempty"`
-	Verify       string    `json:"verify"`                // gnoiVerifyCA, gnoiVerifyFingerprint or gnoiVerifyUnverified
-	CAID         string    `json:"ca_id,omitempty"`       // trusted NetAnchor CA when Verify is ca
-	Pin          string    `json:"pin,omitempty"`         // SHA-256 fingerprint of the device server certificate
-	PinAddress   string    `json:"pin_address,omitempty"` // host:port the pin was confirmed for
-	Credentials  []byte    `json:"credentials,omitempty"` // nonce || AES-256-GCM(JSON deviceCreds)
-	Created      time.Time `json:"created"`
-	Updated      time.Time `json:"updated"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	FQDN         string          `json:"fqdn,omitempty"`
+	ManagementIP string          `json:"management_ip"`
+	Port         int             `json:"port"`
+	Platform     string          `json:"platform"`
+	Site         string          `json:"site,omitempty"`
+	Tags         []string        `json:"tags,omitempty"`
+	Notes        string          `json:"notes,omitempty"`
+	Model        string          `json:"model,omitempty"`
+	Serial       string          `json:"serial,omitempty"`
+	Verify       string          `json:"verify"`                // gnoiVerifyCA, gnoiVerifyFingerprint or gnoiVerifyUnverified
+	CAID         string          `json:"ca_id,omitempty"`       // trusted NetAnchor CA when Verify is ca
+	Pin          string          `json:"pin,omitempty"`         // SHA-256 fingerprint of the device server certificate
+	PinAddress   string          `json:"pin_address,omitempty"` // host:port the pin was confirmed for
+	Credentials  []byte          `json:"credentials,omitempty"` // nonce || AES-256-GCM(JSON deviceCreds)
+	Snapshot     *DeviceSnapshot `json:"snapshot,omitempty"`    // last "Refresh certificates" result
+	Created      time.Time       `json:"created"`
+	Updated      time.Time       `json:"updated"`
+}
+
+// DeviceSnapshot is what the device reported on the last refresh.
+type DeviceSnapshot struct {
+	Taken  time.Time    `json:"taken"`
+	Certs  []DeviceCert `json:"certs"`
+	Served *DeviceCert  `json:"served,omitempty"` // certificate the gRPC port presents
+}
+
+// DeviceCert is one certificate as the device reports it. Fields are empty
+// when the device returned something that does not parse as X.509.
+type DeviceCert struct {
+	CertID      string    `json:"cert_id,omitempty"`
+	Subject     string    `json:"subject,omitempty"`
+	Issuer      string    `json:"issuer,omitempty"`
+	NotBefore   time.Time `json:"not_before,omitempty"`
+	NotAfter    time.Time `json:"not_after,omitempty"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
 }
 
 type deviceCreds struct {
@@ -203,6 +222,24 @@ func (s *Store) SaveDevice(d *Device) error {
 		devs[i] = *d
 	}
 	return s.saveDevices(devs)
+}
+
+// UpdateDevice applies fn to the stored device under the store lock. Unlike
+// SaveDevice it keeps Updated: it is for device-reported data, not admin edits.
+func (s *Store) UpdateDevice(id string, fn func(d *Device)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	devs, err := s.loadDevices()
+	if err != nil {
+		return err
+	}
+	for i := range devs {
+		if devs[i].ID == id {
+			fn(&devs[i])
+			return s.saveDevices(devs)
+		}
+	}
+	return errDeviceNotFound
 }
 
 // DeleteDevice removes the device and its stored credentials.

@@ -51,6 +51,7 @@ type fakeGNOIDevice struct {
 	lastCert  []byte // PEM the device received in LoadCertificate
 	lastChain int    // number of CA certificates received with it
 	devPubKey *rsa.PublicKey
+	sudi      []byte // PEM of a CISCO_IDEVID certificate listed by GetCertificates; nil = none
 }
 
 type devSnap struct {
@@ -86,6 +87,9 @@ func (f *fakeGNOIDevice) GetCertificates(ctx context.Context, _ *gnoicert.GetCer
 	resp := &gnoicert.GetCertificatesResponse{}
 	for _, id := range f.existing {
 		resp.CertificateInfo = append(resp.CertificateInfo, &gnoicert.CertificateInfo{CertificateId: id, Certificate: &gnoicert.Certificate{Type: gnoicert.CertificateType_CT_X509, Certificate: []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")}})
+	}
+	if f.sudi != nil {
+		resp.CertificateInfo = append(resp.CertificateInfo, &gnoicert.CertificateInfo{CertificateId: "CISCO_IDEVID_SUDI", Certificate: &gnoicert.Certificate{Type: gnoicert.CertificateType_CT_X509, Certificate: f.sudi}})
 	}
 	for id, c := range f.installed {
 		resp.CertificateInfo = append(resp.CertificateInfo, &gnoicert.CertificateInfo{CertificateId: id, Certificate: &gnoicert.Certificate{Type: gnoicert.CertificateType_CT_X509, Certificate: c}})

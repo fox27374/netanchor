@@ -97,6 +97,64 @@
 
 {{if .IsAdmin}}
 <div class="panel">
+  <h3>Live check</h3>
+  <p class="muted" style="font-size:12px">Connects to the device over gNOI with the verification above. Nothing on the device changes.</p>
+  <form method="post" action="/devices/{{$d.ID}}/test">
+    <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+    {{if not $v.Stored}}
+    <div class="form-grid">
+      <div><label for="check_username">Device username for this check</label><input id="check_username" name="username" autocomplete="off"></div>
+      <div><label for="check_password">Device password for this check</label><input id="check_password" name="password" type="password" autocomplete="new-password"></div>
+    </div>
+    <p class="muted" style="font-size:12px">No credentials are stored for this device, so they are used once and not kept.</p>
+    {{end}}
+    <button class="btn secondary" type="submit">Test connection</button>
+    <button class="btn secondary" type="submit" formaction="/devices/{{$d.ID}}/refresh">Refresh certificates</button>
+  </form>
+</div>
+{{if $v.Check}}
+<div class="panel">
+  <h3>Last check</h3>
+  <div class="alert {{$v.Check.Class}}" role="status">{{$v.Check.Outcome}}</div>
+  {{if $v.Check.Steps}}
+  <table>
+    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>{{range $v.Check.Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+<div class="panel">
+  <h3>Certificates on the device</h3>
+  {{if $v.Taken.IsZero}}
+  <div class="empty">Not refreshed yet.{{if .IsAdmin}} Use Refresh certificates above.{{end}}</div>
+  {{else}}
+  <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Certificates expiring within 30 days are highlighted.</p>
+  {{if $v.Served}}<p>Served on the gRPC port: <span class="{{if $v.Served.Class}}pill {{$v.Served.Class}}{{end}}">{{$v.Served.Subject}}</span> expires {{$v.Served.NotAfter.Format "2006-01-02"}}</p>{{end}}
+  {{if $v.Snapshot}}
+  <table>
+    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Expires</th></tr></thead>
+    <tbody>
+    {{range $v.Snapshot}}
+      <tr>
+        <td class="mono">{{.CertID}}</td>
+        <td class="wrap">{{.Subject}}</td>
+        <td class="wrap">{{.Issuer}}</td>
+        <td>{{if .Class}}<span class="pill {{.Class}}">{{if eq .Class "bad"}}expired {{end}}{{.NotAfter.Format "2006-01-02"}}</span>{{else}}{{.NotAfter.Format "2006-01-02"}}{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">The device lists no certificates.</div>
+  {{end}}
+  {{end}}
+</div>
+
+{{if .IsAdmin}}
+<div class="panel">
   <h3>Delete device</h3>
   <p class="muted">Removes the device record and its stored credentials. Certificates already pushed to the device are not changed.</p>
   <form method="post" action="/devices/{{$d.ID}}/delete">
