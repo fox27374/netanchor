@@ -1,0 +1,110 @@
+{{define "content"}}
+{{if .Data.IsForm}}
+{{$v := .Data}}
+<h2>{{if $v.Editing}}Edit device{{else}}Add device{{end}}</h2>
+
+{{if $v.Info}}<p class="muted" role="status">{{$v.Info}}</p>{{end}}
+
+<form method="post" action="/devices/save">
+  <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+  <input type="hidden" name="id" value="{{$v.ID}}">
+<div class="panel">
+  <h3>Device</h3>
+  <div class="form-grid">
+    <div><label for="name">Name (unique)</label><input id="name" name="name" required value="{{$v.Name}}"></div>
+    <div><label for="fqdn">FQDN (optional, used for the certificate name)</label><input id="fqdn" name="fqdn" value="{{$v.FQDN}}"></div>
+    <div><label for="management_ip">Management IP</label><input id="management_ip" name="management_ip" required placeholder="192.0.2.10" value="{{$v.ManagementIP}}"></div>
+    <div><label for="port">gNOI port</label><input id="port" name="port" type="number" min="1" max="65535" value="{{$v.Port}}"></div>
+    <div><label for="platform">Platform</label>
+      <select id="platform" name="platform">
+        <option value="IOS-XE" {{if eq $v.Platform "IOS-XE"}}selected{{end}}>IOS-XE</option>
+        <option value="NX-OS" {{if eq $v.Platform "NX-OS"}}selected{{end}}>NX-OS</option>
+      </select></div>
+    <div><label for="site">Site</label><input id="site" name="site" value="{{$v.Site}}"></div>
+    <div><label for="tags">Tags (comma separated)</label><input id="tags" name="tags" value="{{$v.Tags}}"></div>
+    <div><label for="model">Model (optional)</label><input id="model" name="model" value="{{$v.Model}}"></div>
+    <div><label for="serial">Serial (optional)</label><input id="serial" name="serial" value="{{$v.Serial}}"></div>
+  </div>
+  <label for="notes">Notes</label>
+  <textarea id="notes" name="notes">{{$v.Notes}}</textarea>
+</div>
+
+<div class="panel">
+  <h3>Server verification</h3>
+  <label for="verify">How to verify the device's gRPC server certificate</label>
+  <select id="verify" name="verify">
+    <option value="fingerprint" {{if eq $v.Verify "fingerprint"}}selected{{end}}>Pin a fingerprint (fetch and confirm)</option>
+    <option value="ca" {{if eq $v.Verify "ca"}}selected{{end}}>Trust a NetAnchor CA</option>
+    <option value="unverified" {{if eq $v.Verify "unverified"}}selected{{end}}>Unverified (credentials can be intercepted)</option>
+  </select>
+  <div class="form-grid" style="margin-top:12px">
+    <div><label for="ca">Trusted NetAnchor CA (CA mode)</label>
+      <select id="ca" name="ca">
+        <option value="">Select a CA</option>
+        {{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $.Data.CAID}}selected{{end}}>{{.DisplayPath}}</option>{{end}}
+      </select></div>
+    <div><label for="fingerprint">Pinned SHA-256 fingerprint (fingerprint mode)</label><input id="fingerprint" name="fingerprint" autocomplete="off" value="{{$v.Fingerprint}}"></div>
+  </div>
+  <input type="hidden" name="probed_target" value="{{$v.ProbedTarget}}">
+  <input type="hidden" name="probed_fingerprint" value="{{$v.ProbedFingerprint}}">
+  <div style="margin-top:12px">
+    <button class="btn secondary" type="submit" formaction="/devices/probe" formnovalidate>Fetch fingerprint</button>
+    <p class="muted" style="font-size:12px">Connects only to read the device's server certificate. It sends no credentials. Compare the fingerprint with the device before you save. Changing the address or port needs a new fingerprint.</p>
+  </div>
+  <label style="margin-top:12px"><input type="checkbox" name="unverified_ack" value="on" {{if $v.UnverifiedAck}}checked{{end}}> I accept that, in unverified mode, the device password can be read by anyone on the path.</label>
+</div>
+
+<div class="panel">
+  <h3>Credentials</h3>
+  {{if not $v.KeyAvailable}}
+  <p class="muted">Credential storage is off. Set <code>NETANCHOR_DEVICE_KEY_FILE</code> to a file with 32 random bytes and restart NetAnchor. Until then, usernames and passwords cannot be stored.</p>
+  {{end}}
+  <div class="form-grid">
+    <div><label for="username">Device username</label><input id="username" name="username" autocomplete="off" {{if not $v.KeyAvailable}}disabled{{end}} value="{{$v.Username}}"></div>
+    <div><label for="password">Device password</label><input id="password" name="password" type="password" autocomplete="new-password" {{if not $v.KeyAvailable}}disabled{{end}} placeholder="{{if $v.Stored}}stored, leave empty to keep{{end}}"></div>
+  </div>
+  {{if $v.Stored}}
+  <label style="margin-top:12px"><input type="checkbox" name="remove_credentials" value="on"> Remove the stored credentials</label>
+  {{end}}
+</div>
+
+<div class="panel">
+  <button class="btn" type="submit">Save device</button>
+</div>
+</form>
+{{else}}
+{{$v := .Data}}
+{{$d := $v.Device}}
+<h2>{{$d.Name}}</h2>
+
+<div class="panel">
+  <table class="kv">
+    <tr><th>Management address</th><td class="wrap">{{$d.ManagementIP}}:{{$d.Port}}</td></tr>
+    <tr><th>FQDN</th><td>{{$d.FQDN}}</td></tr>
+    <tr><th>Platform</th><td>{{$d.Platform}}</td></tr>
+    <tr><th>Site</th><td>{{$d.Site}}</td></tr>
+    <tr><th>Tags</th><td>{{range $d.Tags}}<span class="pill">{{.}}</span>{{end}}</td></tr>
+    <tr><th>Model</th><td>{{$d.Model}}</td></tr>
+    <tr><th>Serial</th><td>{{$d.Serial}}</td></tr>
+    <tr><th>Server verification</th><td>{{if eq $d.Verify "ca"}}Trusts NetAnchor CA <code>{{$d.CAID}}</code>{{else if eq $d.Verify "fingerprint"}}Pinned SHA-256 <code class="wrap">{{$d.Pin}}</code>{{else}}Unverified{{end}}</td></tr>
+    <tr><th>Credentials</th><td>{{if $v.Stored}}stored{{else}}none stored{{end}}</td></tr>
+    <tr><th>Notes</th><td>{{$d.Notes}}</td></tr>
+    <tr><th>Created</th><td>{{$d.Created.Format "2006-01-02 15:04 MST"}}</td></tr>
+    <tr><th>Updated</th><td>{{$d.Updated.Format "2006-01-02 15:04 MST"}}</td></tr>
+  </table>
+  {{if .IsAdmin}}<p><a class="btn secondary" href="/devices/{{$d.ID}}/edit">Edit device</a></p>{{end}}
+</div>
+
+{{if .IsAdmin}}
+<div class="panel">
+  <h3>Delete device</h3>
+  <p class="muted">Removes the device record and its stored credentials. Certificates already pushed to the device are not changed.</p>
+  <form method="post" action="/devices/{{$d.ID}}/delete">
+    <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+    <label><input type="checkbox" name="confirm_delete" value="on"> I understand this removes the device and its stored credentials.</label>
+    <button class="btn" type="submit">Delete device</button>
+  </form>
+</div>
+{{end}}
+{{end}}
+{{end}}

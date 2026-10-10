@@ -59,6 +59,7 @@ type Store struct {
 	dir             string
 	mu              sync.Mutex
 	scepMu          sync.Mutex // serializes SCEP commits with CA/certificate deletion
+	deviceKey       []byte     // NETANCHOR_DEVICE_KEY_FILE; nil disables credential storage
 }
 
 func OpenStore(dir string) (*Store, error) {
