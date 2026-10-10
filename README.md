@@ -103,7 +103,8 @@ the admin account.
 |         | `NETANCHOR_DISABLE_AUTH`  | —                  | Set to `1` to disable login (trusted local use only) |
 |         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
 |         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
-|         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. Empty refuses every target |
+|         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. `0.0.0.0/0,::/0` allows every device; narrow it to management networks where possible. Empty refuses every target |
+|         | `NETANCHOR_DEVICE_KEY_FILE` | —                | File with exactly 32 random bytes that encrypts device credentials (AES-256-GCM). Create with `head -c 32 /dev/urandom > device.key`, keep it outside the data directory. Without it no credentials are stored |
 
 ## SCEP for switch HTTPS and gNMI
 
@@ -294,6 +295,19 @@ outbound gRPC connections; it opens no new listener.
 - Unit tests use a fake in-process gNOI server. A Phase 0 spike on a Catalyst 9000
   (IOS-XE 17.18.2) confirmed the CSR flow; the end-to-end push is not yet verified on
   hardware. NX-OS is untested.
+
+## Devices
+
+Device Management → Devices keeps an inventory of network devices (name, address,
+platform, site, tags, notes). Admins create and edit them; all users can view them.
+
+- Credentials are stored only when `NETANCHOR_DEVICE_KEY_FILE` is set. They are
+  encrypted at rest and never shown or logged. Passwords are never rendered back.
+- Server verification: the device's gRPC certificate fingerprint is fetched, the
+  admin confirms it, and it is pinned to the address. Changing the address or port
+  needs a new fetch. The other options are trusting a NetAnchor CA or unverified
+  (with an explicit acknowledgement).
+- Fetching a fingerprint connects to the device only for the TLS handshake and sends no credentials.
 
 ## Run in a container (Podman)
 

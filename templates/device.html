@@ -1,0 +1,35 @@
+{{define "content"}}
+{{$v := .Data}}
+{{$d := $v.Device}}
+<h2>{{$d.Name}}</h2>
+
+<div class="panel">
+  <table class="kv">
+    <tr><th>Management address</th><td class="wrap">{{$d.ManagementIP}}:{{$d.Port}}</td></tr>
+    <tr><th>FQDN</th><td>{{$d.FQDN}}</td></tr>
+    <tr><th>Platform</th><td>{{$d.Platform}}</td></tr>
+    <tr><th>Site</th><td>{{$d.Site}}</td></tr>
+    <tr><th>Tags</th><td>{{range $d.Tags}}<span class="pill">{{.}}</span>{{end}}</td></tr>
+    <tr><th>Model</th><td>{{$d.Model}}</td></tr>
+    <tr><th>Serial</th><td>{{$d.Serial}}</td></tr>
+    <tr><th>Server verification</th><td>{{if eq $d.Verify "ca"}}Trusts NetAnchor CA <code>{{$d.CAID}}</code>{{else if eq $d.Verify "fingerprint"}}Pinned SHA-256 <code class="wrap">{{$d.Pin}}</code>{{else}}Unverified{{end}}</td></tr>
+    <tr><th>Credentials</th><td>{{if $v.Stored}}stored{{else}}none stored{{end}}</td></tr>
+    <tr><th>Notes</th><td>{{$d.Notes}}</td></tr>
+    <tr><th>Created</th><td>{{$d.Created.Format "2006-01-02 15:04 MST"}}</td></tr>
+    <tr><th>Updated</th><td>{{$d.Updated.Format "2006-01-02 15:04 MST"}}</td></tr>
+  </table>
+  {{if .IsAdmin}}<p><a class="btn secondary" href="/devices/{{$d.ID}}/edit">Edit device</a></p>{{end}}
+</div>
+
+{{if .IsAdmin}}
+<div class="panel">
+  <h3>Delete device</h3>
+  <p class="muted">Removes the device record and its stored credentials. Certificates already pushed to the device are not changed.</p>
+  <form method="post" action="/devices/{{$d.ID}}/delete">
+    <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+    <label><input type="checkbox" name="confirm_delete" value="on"> I understand this removes the device and its stored credentials.</label>
+    <button class="btn" type="submit">Delete device</button>
+  </form>
+</div>
+{{end}}
+{{end}}

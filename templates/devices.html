@@ -1,0 +1,28 @@
+{{define "content"}}
+<h2>Devices</h2>
+<div class="panel">
+  <div class="dlhead">
+    <p class="muted" style="margin:0">Network devices that certificates are pushed to. Credentials are stored encrypted.</p>
+    {{if .IsAdmin}}<a class="btn" href="/devices/new">Add device</a>{{end}}
+  </div>
+  {{if .Data}}
+  <table>
+    <thead><tr><th>Name</th><th>Address</th><th>Platform</th><th>Site</th><th>Verification</th><th>Credentials</th></tr></thead>
+    <tbody>
+    {{range .Data}}
+      <tr>
+        <td><a href="/devices/{{.ID}}">{{.Name}}</a></td>
+        <td class="mono">{{.ManagementIP}}:{{.Port}}</td>
+        <td>{{.Platform}}</td>
+        <td>{{.Site}}</td>
+        <td>{{if eq .Verify "ca"}}NetAnchor CA{{else if eq .Verify "fingerprint"}}Pinned fingerprint{{else}}Unverified{{end}}</td>
+        <td>{{if .Credentials}}stored{{else}}none{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No devices yet.{{if .IsAdmin}} Add the first one to start.{{end}}</div>
+  {{end}}
+</div>
+{{end}}
