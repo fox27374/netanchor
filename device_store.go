@@ -265,6 +265,31 @@ func (s *Store) DeleteDevice(id string) error {
 	return s.saveDevices(out)
 }
 
+// dropUndecryptableCredentials runs on a staged restore before activation. Devices
+// are kept; credentials the live key (nil when unset) cannot open are cleared.
+// It returns the names of the devices that lost their credentials.
+func dropUndecryptableCredentials(dir string, key []byte) ([]string, error) {
+	s := &Store{dir: dir, deviceKey: key}
+	devs, err := s.loadDevices()
+	if err != nil {
+		return nil, err
+	}
+	var dropped []string
+	for i := range devs {
+		if devs[i].Credentials == nil {
+			continue
+		}
+		if _, err := s.openCredentials(devs[i].Credentials); err != nil {
+			dropped = append(dropped, devs[i].Name)
+			devs[i].Credentials = nil
+		}
+	}
+	if len(dropped) == 0 {
+		return nil, nil
+	}
+	return dropped, s.saveDevices(devs)
+}
+
 func newDeviceID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

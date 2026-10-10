@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -244,6 +246,11 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(stage)
+	droppedCreds, err := dropUndecryptableCredentials(stage, s.store.deviceKey)
+	if err != nil {
+		http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
+		return
+	}
 	stopped := false
 	err = s.backupExclusive(r, func() error {
 		err := activateBackup(s.store.dir, stage, durableRename)
@@ -272,7 +279,15 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auth.clearSession(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Restore complete</title><h1>Restore complete — restart required</h1><p>All instance data was replaced. Browser sessions and unused SCEP challenges were invalidated.</p><p>NetAnchor is shutting down now. A container with restart: unless-stopped restarts automatically. If running a standalone binary, start it again manually.</p><p>After restart, <a href="/login">sign in with an account from the backup</a>. Your temporary account has been replaced. The HTTPS identity may have changed; verify it before accepting any browser warning. SCEP needs unlock unless a matching startup secret is configured.</p></html>`)
+	warning := ""
+	if len(droppedCreds) > 0 {
+		names := make([]string, len(droppedCreds))
+		for i, n := range droppedCreds {
+			names[i] = html.EscapeString(n)
+		}
+		warning = `<p><strong>Warning:</strong> the device key file does not decrypt the stored credentials of these devices, so their usernames and passwords were dropped. The devices were kept. Re-enter their credentials: ` + strings.Join(names, ", ") + `.</p>`
+	}
+	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Restore complete</title><h1>Restore complete — restart required</h1><p>All instance data was replaced. Browser sessions and unused SCEP challenges were invalidated.</p>`+warning+`<p>NetAnchor is shutting down now. A container with restart: unless-stopped restarts automatically. If running a standalone binary, start it again manually.</p><p>After restart, <a href="/login">sign in with an account from the backup</a>. Your temporary account has been replaced. The HTTPS identity may have changed; verify it before accepting any browser warning. SCEP needs unlock unless a matching startup secret is configured.</p></html>`)
 }
 
 func maintenanceStatus(err error) int {
