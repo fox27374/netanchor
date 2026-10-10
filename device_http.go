@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -38,6 +39,10 @@ type deviceDetailPage struct {
 	Stored       bool
 	KeyAvailable bool
 	CSRF         string
+	Snapshot     []deviceCertRow
+	Served       *deviceCertRow
+	Taken        time.Time
+	Check        *deviceCheckResult
 }
 
 // IsForm tells device.html whether to render the add/edit form or the details.
@@ -71,13 +76,20 @@ func (s *Server) handleDeviceDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderDeviceDetail(w, r, dev, "")
+	s.renderDeviceDetail(w, r, dev, nil, "")
 }
 
-func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev Device, errMsg string) {
+// renderDeviceDetail shows the device page. check is the outcome of the last test or refresh, if any.
+func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev Device, check *deviceCheckResult, errMsg string) {
+	deviceHeaders(w)
 	d := s.base(r, dev.Name, "devices")
 	d.Error = errMsg
-	d.Data = deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, KeyAvailable: s.store.CredentialsAvailable(), CSRF: s.backupToken(r)}
+	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, KeyAvailable: s.store.CredentialsAvailable(), CSRF: s.backupToken(r), Check: check}
+	if dev.Snapshot != nil {
+		page.Snapshot, page.Served = deviceSnapshotView(dev.Snapshot, time.Now())
+		page.Taken = dev.Snapshot.Taken
+	}
+	d.Data = page
 	s.render(w, "device", d)
 }
 
@@ -360,7 +372,7 @@ func (s *Server) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.PostForm.Get("confirm_delete") != "on" {
-		s.renderDeviceDetail(w, r, dev, "tick the confirmation box to delete this device")
+		s.renderDeviceDetail(w, r, dev, nil, "tick the confirmation box to delete this device")
 		return
 	}
 	if err := s.store.DeleteDevice(id); err != nil {

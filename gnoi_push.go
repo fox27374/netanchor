@@ -491,24 +491,33 @@ func gnoiWaitReady(ctx context.Context, conn *grpc.ClientConn) error {
 // gnoiProbe fetches the device's server certificate fingerprint for confirmation.
 // It does a TLS handshake only; no credentials are sent.
 func gnoiProbe(ctx context.Context, allow []*net.IPNet, target string) (string, error) {
-	host, port, ip, err := gnoiResolve(ctx, allow, target)
+	der, err := gnoiServedCert(ctx, allow, target)
 	if err != nil {
 		return "", err
+	}
+	sum := sha256.Sum256(der)
+	return hexColons(sum[:]), nil
+}
+
+// gnoiServedCert returns the DER certificate the device's gRPC port presents.
+func gnoiServedCert(ctx context.Context, allow []*net.IPNet, target string) ([]byte, error) {
+	host, port, ip, err := gnoiResolve(ctx, allow, target)
+	if err != nil {
+		return nil, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, gnoiConnectTimeout)
 	defer cancel()
 	d := tls.Dialer{Config: &tls.Config{ServerName: host, InsecureSkipVerify: true, NextProtos: []string{"h2"}}}
 	c, err := d.DialContext(dialCtx, "tcp", net.JoinHostPort(ip.String(), port))
 	if err != nil {
-		return "", fmt.Errorf("connect: %w", err)
+		return nil, fmt.Errorf("connect: %w", err)
 	}
 	defer c.Close()
 	certs := c.(*tls.Conn).ConnectionState().PeerCertificates
 	if len(certs) == 0 {
-		return "", errors.New("device sent no certificate")
+		return nil, errors.New("device sent no certificate")
 	}
-	sum := sha256.Sum256(certs[0].Raw)
-	return hexColons(sum[:]), nil
+	return certs[0].Raw, nil
 }
 
 // normalizeFingerprint makes "AA:BB..." and "aabb..." compare equal.
