@@ -1,5 +1,8 @@
 # gNOI certificate push to switches
 
+> Superseded by `device-management.md` (2026-10-10). The Phase 0 and Phase 2 device
+> results below remain authoritative.
+
 Approval: grilled with the user and summarised; user said "save the spec". Phase 0
 (spike) done 2026-10-09 on lab switch 172.24.80.240 (Cat9K IOS-XE 17.18.2); results
 under "Phase 0 results". Phase 1 shipped in 1.6.5; Phase 2 lab run done, see "Phase 2 results".
