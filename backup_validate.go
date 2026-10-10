@@ -147,6 +147,9 @@ func validateBackup(dir string) error {
 	if err := validateDevices(dir); err != nil {
 		return err
 	}
+	if err := validateDefinitions(dir); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(filepath.Join(dir, "trash"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -312,6 +315,33 @@ func validateDevices(dir string) error {
 			return errors.New("invalid device record")
 		}
 		ids[d.ID], names[d.Name] = true, true
+	}
+	return nil
+}
+
+// validateDefinitions checks definition records like the definition store writes
+// them. A deleted CA or profile may still be named, as with templates.
+func validateDefinitions(dir string) error {
+	var defs []CertDefinition
+	if err := backupJSON(filepath.Join(dir, "definitions.json"), &defs); err != nil {
+		return err
+	}
+	if len(defs) > 10000 {
+		return errors.New("too many definitions")
+	}
+	ids, names := map[string]bool{}, map[string]bool{}
+	for _, d := range defs {
+		if d.ID == "" || ids[d.ID] || !validTemplateName(d.Name) || names[strings.ToLower(d.Name)] || !backupCAID(d.CAID) ||
+			d.Profile == "" || len(d.Profile) > 64 || d.ValidDays < 1 || d.ValidDays > 36500 || !validCertID(d.CertID) ||
+			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 {
+			return errors.New("invalid definition record")
+		}
+		for _, san := range d.ExtraSANs {
+			if net.ParseIP(san) == nil && !validDNSName(san) {
+				return errors.New("invalid definition SAN")
+			}
+		}
+		ids[d.ID], names[strings.ToLower(d.Name)] = true, true
 	}
 	return nil
 }

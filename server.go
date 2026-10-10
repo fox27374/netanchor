@@ -51,7 +51,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup", "certificates", "devices", "device"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup", "certificates", "devices", "device", "definitions", "definition"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -88,6 +88,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /devices/{id}/delete", s.handleDeviceDelete)
 	mux.HandleFunc("POST /devices/{id}/test", s.handleDeviceTest)
 	mux.HandleFunc("POST /devices/{id}/refresh", s.handleDeviceRefresh)
+	mux.HandleFunc("GET /definitions", s.handleDefinitions)
+	mux.HandleFunc("GET /definitions/new", s.handleDefinitionNew)
+	mux.HandleFunc("POST /definitions/save", s.handleDefinitionSave)
+	mux.HandleFunc("GET /definitions/{id}/edit", s.handleDefinitionEdit)
+	mux.HandleFunc("POST /definitions/{id}/delete", s.handleDefinitionDelete)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /certificates", s.handleCertificates)
 	mux.HandleFunc("GET /tools", s.handleTools)

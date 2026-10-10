@@ -20,7 +20,7 @@ const backupMagic = "NETANCHOR-BACKUP-1\n"
 const backupLimit = 64 << 20
 const backupFileLimit = 16 << 20
 
-var backupRoots = []string{"cas", "certs", "auth", "tls", "trash", "index.json", "templates.json", "scep.json", "devices.json"}
+var backupRoots = []string{"cas", "certs", "auth", "tls", "trash", "index.json", "templates.json", "scep.json", "devices.json", "definitions.json"}
 
 type backupFile struct {
 	Path string
@@ -95,7 +95,7 @@ func backupPath(p string) bool {
 		}
 	}
 	switch v[0] {
-	case "index.json", "templates.json", "scep.json", "devices.json":
+	case "index.json", "templates.json", "scep.json", "devices.json", "definitions.json":
 		return len(v) == 1
 	case "auth":
 		return len(v) == 2 && (v[1] == "users.json" || v[1] == "session.key")
