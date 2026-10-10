@@ -1,0 +1,50 @@
+{{define "content"}}
+{{$v := .Data}}
+<h2>{{if $v.Form.ID}}Edit device certificate definition{{else}}Add device certificate definition{{end}}</h2>
+
+<form method="post" action="/definitions/save">
+  <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+  <input type="hidden" name="id" value="{{$v.Form.ID}}">
+<div class="panel">
+  <h3>Certificate</h3>
+  <div class="form-grid">
+    <div><label for="name">Name (unique)</label><input id="name" name="name" required value="{{$v.Form.Name}}"></div>
+    <div><label for="cert_id">Certificate ID (optional, default netanchor-&lt;name&gt;)</label><input id="cert_id" name="cert_id" value="{{$v.Form.CertID}}"></div>
+    <div><label for="ca">Issuing CA</label>
+      <select id="ca" name="ca" required>
+        <option value="">Select a CA</option>
+        {{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.Form.CAID}}selected{{end}}>{{.DisplayPath}}</option>{{end}}
+      </select></div>
+    <div><label for="profile">Profile</label>
+      <select id="profile" name="profile" required>
+        <option value="">Select a profile</option>
+        {{range $v.Profiles}}<option value="{{.}}" {{if eq . $v.Form.Profile}}selected{{end}}>{{.}}</option>{{end}}
+      </select></div>
+    <div><label for="valid_days">Validity (days, capped by the profile and the CA)</label><input id="valid_days" name="valid_days" type="number" min="1" required value="{{$v.Form.ValidDays}}"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Subject</h3>
+  <p class="muted" style="font-size:12px">The subject common name is the device FQDN, or the device name when the FQDN is empty.</p>
+  <div class="form-grid">
+    <div><label for="country">Country (2 letters)</label><input id="country" name="country" required maxlength="2" value="{{$v.Form.Country}}"></div>
+    <div><label for="state">State</label><input id="state" name="state" required value="{{$v.Form.State}}"></div>
+    <div><label for="organization">Organization</label><input id="organization" name="organization" required value="{{$v.Form.Organization}}"></div>
+    <div><label for="city">City (optional)</label><input id="city" name="city" value="{{$v.Form.City}}"></div>
+    <div><label for="ou">Organizational unit (optional)</label><input id="ou" name="ou" value="{{$v.Form.OU}}"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Subject alternative names</h3>
+  <p class="muted" style="font-size:12px">Each push adds the device FQDN as a DNS name and the management IP as an IP address. Add fixed extra DNS names or IP addresses below, comma separated.</p>
+  <label for="extra_sans">Extra SANs (optional)</label>
+  <input id="extra_sans" name="extra_sans" value="{{$v.Form.ExtraSANs}}">
+</div>
+
+<div class="panel">
+  <button class="btn" type="submit">Save definition</button>
+</div>
+</form>
+{{end}}

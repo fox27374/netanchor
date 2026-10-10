@@ -1,0 +1,36 @@
+{{define "content"}}
+<h2>Device certificate definitions</h2>
+<div class="panel">
+  <div class="dlhead">
+    <p class="muted" style="margin:0">How device certificates look when pushed over gNOI. Each push uses one definition. Keys are RSA 2048 generated on the device.</p>
+    {{if .IsAdmin}}<a class="btn" href="/definitions/new">Add definition</a>{{end}}
+  </div>
+  {{if .Data.Defs}}
+  <table>
+    <thead><tr><th>Name</th><th>Cert ID</th><th>Profile</th><th>Organization</th><th>Validity</th><th></th></tr></thead>
+    <tbody>
+    {{range .Data.Defs}}
+      <tr>
+        <td>{{if $.IsAdmin}}<a href="/definitions/{{.ID}}/edit">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+        <td class="mono">{{.CertID}}</td>
+        <td>{{.Profile}}</td>
+        <td>{{.Organization}}</td>
+        <td>{{.ValidDays}} days</td>
+        <td class="links" style="text-align:right">
+          {{if $.IsAdmin}}
+          <a href="/definitions/{{.ID}}/edit">Edit</a>
+          <form method="post" action="/definitions/{{.ID}}/delete" onsubmit="return confirm('Delete definition {{.Name}}?')" style="display:inline;margin-left:10px">
+            <input type="hidden" name="csrf" value="{{$.Data.CSRF}}">
+            <button class="linklike" type="submit">Delete</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No definitions yet.{{if .IsAdmin}} Add the first one to start.{{end}}</div>
+  {{end}}
+</div>
+{{end}}
