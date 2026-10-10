@@ -369,11 +369,6 @@ func requiresAdmin(method, path string) bool {
 	if path == "/admin/scep" || strings.HasPrefix(path, "/admin/scep/") {
 		return true
 	}
-	// Device writes, credential forms and fingerprint probes are admin-only; device views are open.
-	if strings.HasPrefix(path, "/devices/") && (path == "/devices/new" || path == "/devices/save" || path == "/devices/probe" ||
-		strings.HasSuffix(path, "/edit") || strings.HasSuffix(path, "/delete")) {
-		return true
-	}
 	// Managing certificate templates is admin-only.
 	if strings.HasPrefix(path, "/templates") {
 		return true

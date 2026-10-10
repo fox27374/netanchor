@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -158,6 +159,51 @@ func TestDeviceWithoutKeyStoresNothing(t *testing.T) {
 	}
 }
 
+func TestDeviceCredentialsNeverLogged(t *testing.T) {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	_, srv := deviceTestStore(t, true)
+	form := deviceForm1("sw6")
+	form.Set("username", testDevUser)
+	form.Set("password", testDevPass)
+	rec := devicePost(srv, "/devices/save", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create: status %d: %s", rec.Code, rec.Body.String())
+	}
+	id := strings.TrimPrefix(rec.Header().Get("Location"), "/devices/")
+	edit := deviceForm1("sw6")
+	edit.Set("id", id)
+	edit.Set("username", testDevUser)
+	edit.Set("password", "another-"+testDevPass)
+	devicePost(srv, "/devices/save", edit)
+	devicePost(srv, "/devices/"+id+"/delete", url.Values{"confirm_delete": {"on"}})
+
+	for _, secret := range []string{testDevPass, "another-" + testDevPass} {
+		if strings.Contains(buf.String(), secret) {
+			t.Fatal("device password written to the log")
+		}
+	}
+}
+
+func TestLoadDeviceKeyRejectsBadFiles(t *testing.T) {
+	st, err := OpenStore(t.TempDir())
+	backupCheck(t, err)
+	if err := st.LoadDeviceKey(""); err != nil || st.CredentialsAvailable() {
+		t.Fatalf("empty path should leave credential storage off: %v", err)
+	}
+	if err := st.LoadDeviceKey(filepath.Join(t.TempDir(), "missing.key")); err == nil || st.CredentialsAvailable() {
+		t.Fatalf("missing key file accepted: %v", err)
+	}
+	short := filepath.Join(t.TempDir(), "short.key")
+	backupCheck(t, os.WriteFile(short, []byte(testDeviceKeyBytes[:31]), 0o600))
+	if err := st.LoadDeviceKey(short); err == nil || st.CredentialsAvailable() {
+		t.Fatalf("31-byte key file accepted: %v", err)
+	}
+}
+
 func TestDevicePinRules(t *testing.T) {
 	st, srv := deviceTestStore(t, false)
 	r := httptest.NewRequest(http.MethodPost, "/devices/save", nil)
@@ -221,7 +267,10 @@ func TestDeviceRolesAndCSRF(t *testing.T) {
 		t.Fatalf("viewer cannot read devices: %d", rec.Code)
 	}
 
-	for _, path := range []string{"/devices/new", "/devices/save", "/devices/probe"} {
+	if rec := deviceGetWithCookie(routes, "/devices/new", cookie); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer GET /devices/new: status %d, want 403", rec.Code)
+	}
+	for _, path := range []string{"/devices/save", "/devices/probe"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(deviceForm1("x").Encode()))
 		req.Header.Set("Cookie", cookie)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -279,6 +328,14 @@ func TestDeviceProbeRespectsAllowlist(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "Fingerprint fetched") || !strings.Contains(rec.Body.String(), e.fp) {
 		t.Fatalf("probe refused with 0.0.0.0/0,::/0: %s", rec.Body.String())
 	}
+}
+
+func deviceGetWithCookie(h http.Handler, path, cookie string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Cookie", cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func cloneValues(v url.Values) url.Values {

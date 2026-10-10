@@ -40,6 +40,10 @@ type deviceDetailPage struct {
 	CSRF         string
 }
 
+// IsForm tells device.html whether to render the add/edit form or the details.
+func (deviceForm) IsForm() bool       { return true }
+func (deviceDetailPage) IsForm() bool { return false }
+
 func deviceHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	// no-referrer makes browsers send "Origin: null" on form POSTs, which backupCSRF rejects.
@@ -78,10 +82,18 @@ func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev 
 }
 
 func (s *Server) handleDeviceNew(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	s.renderDeviceForm(w, r, deviceForm{Port: strconv.Itoa(deviceDefaultPort), Platform: devicePlatformIOSXE, Verify: gnoiVerifyFingerprint}, "")
 }
 
 func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	dev, ok, err := s.store.GetDevice(r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
@@ -138,7 +150,7 @@ func (s *Server) renderDeviceForm(w http.ResponseWriter, r *http.Request, f devi
 	d := s.base(r, title, "devices")
 	d.Error = errMsg
 	d.Data = f
-	s.render(w, "device_form", d)
+	s.render(w, "device", d)
 }
 
 // deviceFormFromPost reads the posted form. Only the password is never read back out.
@@ -159,6 +171,10 @@ func deviceFormFromPost(r *http.Request) deviceForm {
 
 // handleDeviceProbe fetches the device's server certificate fingerprint. It sends no credentials.
 func (s *Server) handleDeviceProbe(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -190,6 +206,10 @@ func (s *Server) handleDeviceProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeviceSave(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -316,6 +336,10 @@ func (s *Server) deviceCredentials(dev *Device, f deviceForm, password string) e
 }
 
 func (s *Server) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		http.Error(w, "administrator required", http.StatusForbidden)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
