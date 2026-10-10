@@ -28,7 +28,8 @@ func (s *Server) handleGNOIAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// no-referrer makes browsers send "Origin: null" on form POSTs, which backupCSRF rejects.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	d := s.base(r, "Push to device (gNOI)", "gnoi")
 	page := gnoiPage{F: map[string]string{}}
 	if r.Method == http.MethodPost {

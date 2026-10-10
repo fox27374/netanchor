@@ -612,3 +612,19 @@ func TestGNOIRejectsMissingCSRFOrOrigin(t *testing.T) {
 		}
 	}
 }
+
+// Browsers send "Origin: null" on form POSTs from pages served with
+// Referrer-Policy no-referrer, which the CSRF check rejects.
+func TestGNOIPageKeepsOriginForSameSitePosts(t *testing.T) {
+	e := newGNOITestEnv(t, &fakeGNOIDevice{})
+	auth, err := NewAuth(e.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(e.store, auth)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/gnoi", nil))
+	if got := rec.Header().Get("Referrer-Policy"); got != "same-origin" {
+		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
+	}
+}
