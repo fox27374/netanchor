@@ -245,7 +245,7 @@
     <div class="nav-group" role="group" aria-labelledby="devices-nav">
       <h2 class="nav-heading" id="devices-nav">Device Management</h2>
       <a href="/devices" {{if eq .Active "devices"}}class="active" aria-current="page"{{end}}>Devices</a>
-      {{if .IsAdmin}}<a href="/admin/gnoi" {{if eq .Active "gnoi"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
+      {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
       <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
     </div>
     {{if .IsAdmin}}

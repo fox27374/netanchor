@@ -51,7 +51,7 @@ type caFlash struct {
 }
 
 func NewServer(store *Store, auth *Auth) *Server {
-	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "gnoi", "backup", "certificates", "devices", "device", "definitions", "definition"}
+	pages := []string{"dashboard", "ca", "issue", "sign", "details", "message", "login", "setup", "users", "templates", "template_edit", "ca_delete_confirm", "cert_delete_confirm", "tools", "scep", "push", "backup", "certificates", "devices", "device", "definitions", "definition"}
 	tpls := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		tpls[p] = template.Must(template.New(p).Funcs(template.FuncMap{"joinStrings": func(values []string) string { return strings.Join(values, ",") }, "hasAlgo": func(list []keyAlgo, value string) bool {
@@ -77,8 +77,8 @@ func (s *Server) Routes() http.Handler {
 	}
 	mux.HandleFunc("GET /admin/scep", s.handleSCEPAdmin)
 	mux.HandleFunc("POST /admin/scep/{action}", s.handleSCEPAdmin)
-	mux.HandleFunc("GET /admin/gnoi", s.handleGNOIAdmin)
-	mux.HandleFunc("POST /admin/gnoi/{action}", s.handleGNOIAdmin)
+	mux.HandleFunc("GET /push", s.handlePush)
+	mux.HandleFunc("POST /push", s.handlePush)
 	mux.HandleFunc("GET /devices", s.handleDevices)
 	mux.HandleFunc("GET /devices/new", s.handleDeviceNew)
 	mux.HandleFunc("POST /devices/save", s.handleDeviceSave)
