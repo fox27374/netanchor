@@ -53,13 +53,17 @@ const (
 // step never saw it. It is not a failed push.
 var errGNOIUnverified = errors.New("installed, could not verify, check the device (it may have rebound its gRPC server)")
 
+// errGNOIExists means the device already has the certificate id. It is skipped, not failed.
+var errGNOIExists = errors.New("already installed; renewal comes with Rotate")
+
 // gnoiPushRequest is one admin push. Password is used for gRPC metadata only.
 type gnoiPushRequest struct {
 	Target       string // host:port of the device gRPC server
 	Username     string
 	Password     string
 	Verify       string
-	CAID         string // trusted NetAnchor CA (verify=ca) and issuing CA
+	CAID         string // NetAnchor CA that issues the certificate
+	TrustCAID    string // NetAnchor CA the device server certificate must chain to (verify=ca)
 	Fingerprint  string // pinned server SHA-256 (verify=fingerprint)
 	CAPassphrase string
 	Template     CertTemplate
@@ -68,6 +72,7 @@ type gnoiPushRequest struct {
 	State        string
 	City         string
 	Organization string
+	OU           string
 	DNSNames     []string
 	IPs          []net.IP
 	CertID       string
@@ -83,10 +88,11 @@ type gnoiStep struct {
 }
 
 // gnoiPush runs connect, auth, capabilities, generate, sign, install and verify.
-// It returns nil when the install is verified, errGNOIUnverified when it was sent
-// but not seen again, and any other error for a failed push. Once a serial exists,
-// the outcome is recorded on that certificate.
-func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRequest) (steps []gnoiStep, err error) {
+// It returns the installed certificate DER when the install is verified,
+// errGNOIUnverified when it was sent but not seen again, errGNOIExists when the
+// device already has the id, and any other error for a failed push. Once a serial
+// exists, the outcome is recorded on that certificate.
+func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRequest) (steps []gnoiStep, installed []byte, err error) {
 	run := &gnoiRun{}
 	var serial string
 	defer func() {
@@ -108,31 +114,37 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	defer func() { steps = run.steps }()
 
 	if err := validateGNOIRequest(req); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	caCert, caKey, err := loadCA(st, req.CAID, req.CAPassphrase)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	chainPEM, err := st.IssuerChainPEM(req.CAID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	chain, err := gnoiChainCerts(chainPEM)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	roots := x509.NewCertPool()
-	roots.AppendCertsFromPEM(chainPEM)
+	if req.Verify == gnoiVerifyCA {
+		trustPEM, err := st.IssuerChainPEM(req.TrustCAID)
+		if err != nil {
+			return nil, nil, err
+		}
+		roots.AppendCertsFromPEM(trustPEM)
+	}
 	tlsCfg := gnoiTLSConfig(req, roots, nil)
 
 	conn, err := gnoiDial(ctx, allow, req.Target, tlsCfg)
 	if err != nil {
-		return nil, run.failed("connect", err)
+		return nil, nil, run.failed("connect", err)
 	}
 	defer conn.Close()
 	if err := gnoiWaitReady(ctx, conn); err != nil {
-		return nil, run.failed("connect", err)
+		return nil, nil, run.failed("connect", err)
 	}
 	run.ok("connect", "TLS connected to "+req.Target)
 
@@ -140,50 +152,51 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", req.Username, "password", req.Password)
 	list, err := cli.GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return nil, run.failed("auth", fmt.Errorf("device rejected the request: %s", status.Convert(err).Message()))
+		return nil, nil, run.failed("auth", fmt.Errorf("device rejected the request: %s", status.Convert(err).Message()))
 	}
 	for _, c := range list.GetCertificateInfo() {
 		if c.GetCertificateId() == req.CertID {
-			return nil, run.failed("auth", fmt.Errorf("certificate id %q already exists on the device; this phase only installs new ids", req.CertID))
+			run.steps = append(run.steps, gnoiStep{Name: "auth", Status: "skipped", Detail: fmt.Sprintf("certificate id %q: %s", req.CertID, errGNOIExists)})
+			return nil, nil, errGNOIExists
 		}
 	}
 	run.ok("auth", fmt.Sprintf("%d certificates listed", len(list.GetCertificateInfo())))
 
 	caps, err := cli.CanGenerateCSR(authCtx, &gnoicert.CanGenerateCSRRequest{KeyType: gnoicert.KeyType_KT_RSA, CertificateType: gnoicert.CertificateType_CT_X509, KeySize: 2048})
 	if err != nil {
-		return nil, run.failed("capabilities", err)
+		return nil, nil, run.failed("capabilities", err)
 	}
 	if !caps.GetCanGenerate() {
-		return nil, run.failed("capabilities", errors.New("device cannot generate an RSA 2048 CSR"))
+		return nil, nil, run.failed("capabilities", errors.New("device cannot generate an RSA 2048 CSR"))
 	}
 	run.ok("capabilities", "RSA 2048 CSR supported")
 
 	stream, err := cli.Install(authCtx)
 	if err != nil {
-		return nil, run.failed("generate", err)
+		return nil, nil, run.failed("generate", err)
 	}
 	if err := stream.Send(&gnoicert.InstallCertificateRequest{InstallRequest: &gnoicert.InstallCertificateRequest_GenerateCsr{GenerateCsr: &gnoicert.GenerateCSRRequest{
 		CertificateId: req.CertID,
 		CsrParams: &gnoicert.CSRParams{
 			Type: gnoicert.CertificateType_CT_X509, KeyType: gnoicert.KeyType_KT_RSA, MinKeySize: 2048,
-			CommonName: req.CommonName, Country: req.Country, State: req.State, City: req.City, Organization: req.Organization,
+			CommonName: req.CommonName, Country: req.Country, State: req.State, City: req.City, Organization: req.Organization, OrganizationalUnit: req.OU,
 		},
 	}}}); err != nil {
-		return nil, run.failed("generate", err)
+		return nil, nil, run.failed("generate", err)
 	}
 	resp, err := stream.Recv()
 	if err != nil {
-		return nil, run.failed("generate", err)
+		return nil, nil, run.failed("generate", err)
 	}
 	csrPEM := resp.GetGeneratedCsr().GetCsr().GetCsr()
 	if len(csrPEM) == 0 {
-		return nil, run.failed("generate", errors.New("device returned no CSR"))
+		return nil, nil, run.failed("generate", errors.New("device returned no CSR"))
 	}
 	run.ok("generate", "device generated the key and CSR")
 
 	rec, der, err := gnoiSignCSR(st, req, csrPEM, caCert, caKey)
 	if err != nil {
-		return nil, run.failed("sign", err)
+		return nil, nil, run.failed("sign", err)
 	}
 	serial = rec.Serial
 	run.ok("sign", "signed as serial "+serial)
@@ -193,7 +206,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		Certificate:    &gnoicert.Certificate{Type: gnoicert.CertificateType_CT_X509, Certificate: certPEM},
 		CaCertificates: chain,
 	}}}); err != nil && !errors.Is(err, io.EOF) {
-		return nil, run.failed("install", err)
+		return nil, nil, run.failed("install", err)
 	}
 	_ = stream.CloseSend()
 	// The device resets open calls after a load, so Unavailable here does not mean the install failed.
@@ -205,7 +218,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	case err == nil, errors.Is(err, io.EOF), status.Code(err) == codes.Unavailable:
 		run.ok("install", "device reset the install stream; verifying on a new connection")
 	default:
-		return nil, run.failed("install", err)
+		return nil, nil, run.failed("install", err)
 	}
 
 	verifyCfg := gnoiTLSConfig(req, roots, der)
@@ -215,7 +228,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		attempts++
 		if seen, verr := gnoiSeenOnDevice(ctx, allow, req, verifyCfg, certPEM); verr == nil && seen {
 			run.ok("verify", fmt.Sprintf("certificate %q present on device (attempt %d)", req.CertID, attempts))
-			return nil, nil
+			return nil, der, nil
 		}
 		if ctx.Err() != nil || !time.Now().Add(gnoiVerifyInterval).Before(deadline) {
 			break
@@ -226,7 +239,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		}
 	}
 	run.steps = append(run.steps, gnoiStep{Name: "verify", Status: "unconfirmed", Detail: fmt.Sprintf("no answer with the certificate after %d attempts", attempts)})
-	return nil, errGNOIUnverified
+	return nil, nil, errGNOIUnverified
 }
 
 // validateGNOIRequest checks the form before any device is contacted.
