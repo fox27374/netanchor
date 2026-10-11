@@ -153,6 +153,28 @@
   {{end}}
 </div>
 
+<div class="panel">
+  <h3>Pushed certificates</h3>
+  {{if $v.Pushes}}
+  <table>
+    <thead><tr><th>Time</th><th>Certificate id</th><th>Serial</th><th>By</th><th>Outcome</th></tr></thead>
+    <tbody>
+    {{range $v.Pushes}}
+      <tr>
+        <td>{{.Time.Format "2006-01-02 15:04 MST"}}</td>
+        <td class="mono">{{.CertID}}</td>
+        <td class="mono">{{.Serial}}</td>
+        <td>{{.Admin}}</td>
+        <td>{{.Outcome}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">Nothing pushed to this device yet.</div>
+  {{end}}
+</div>
+
 {{if .IsAdmin}}
 <div class="panel">
   <h3>Delete device</h3>

@@ -11,13 +11,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
-	"io"
 	"log"
 	"math/big"
 	"net"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,7 +235,7 @@ func (e *gnoiTestEnv) request(t *testing.T) gnoiPushRequest {
 		t.Fatal("missing builtin profile")
 	}
 	return gnoiPushRequest{
-		Target: e.target, Username: testDevUser, Password: testDevPass, Verify: gnoiVerifyCA, CAID: caRoot,
+		Target: e.target, Username: testDevUser, Password: testDevPass, Verify: gnoiVerifyCA, CAID: caRoot, TrustCAID: caRoot,
 		Template: tpl, CommonName: "switch.example.net", Country: "NL", State: "Zuid-Holland", Organization: "Example",
 		DNSNames: []string{"switch.example.net"}, IPs: []net.IP{net.ParseIP("192.0.2.10")},
 		CertID: "netanchor-test", ValidDays: tpl.ValidDays, Admin: "tester",
@@ -280,7 +276,7 @@ func TestGNOIPushHappyPath(t *testing.T) {
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(prev) })
 
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, req)
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, req)
 	if err != nil {
 		t.Fatalf("push failed: %v (steps %v)", err, stepNames(steps))
 	}
@@ -349,7 +345,7 @@ func TestGNOIPushHappyPath(t *testing.T) {
 func TestGNOIAcceptsSHA1DeviceCSR(t *testing.T) {
 	dev := &fakeGNOIDevice{csrAlg: x509.SHA1WithRSA}
 	e := newGNOITestEnv(t, dev)
-	if _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t)); err != nil {
+	if _, _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t)); err != nil {
 		t.Fatalf("SHA-1 device CSR rejected: %v", err)
 	}
 }
@@ -357,11 +353,11 @@ func TestGNOIAcceptsSHA1DeviceCSR(t *testing.T) {
 func TestGNOIRefusesExistingCertID(t *testing.T) {
 	dev := &fakeGNOIDevice{existing: []string{"netanchor-test"}}
 	e := newGNOITestEnv(t, dev)
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
-	if err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("err = %v, want existing-id refusal", err)
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
+	if !errors.Is(err, errGNOIExists) {
+		t.Fatalf("err = %v, want existing-id skip", err)
 	}
-	if got := stepNames(steps); got[len(got)-1] != "auth=failed" {
+	if got := stepNames(steps); got[len(got)-1] != "auth=skipped" {
 		t.Fatalf("steps = %v", got)
 	}
 	if dev.snap().loads != 0 {
@@ -381,7 +377,7 @@ func TestGNOIRequiresSubjectFieldsBeforeContactingDevice(t *testing.T) {
 	} {
 		req := e.request(t)
 		mutate(&req)
-		steps, err := gnoiPush(context.Background(), e.store, e.allow, req)
+		steps, _, err := gnoiPush(context.Background(), e.store, e.allow, req)
 		if err == nil || len(steps) != 0 {
 			t.Fatalf("missing %s: err=%v steps=%v, want immediate refusal", name, err, stepNames(steps))
 		}
@@ -394,7 +390,7 @@ func TestGNOIRequiresSubjectFieldsBeforeContactingDevice(t *testing.T) {
 func TestGNOIDeviceErrorMidInstallIsRecorded(t *testing.T) {
 	dev := &fakeGNOIDevice{loadMode: "error"}
 	e := newGNOITestEnv(t, dev)
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
 	if err == nil || errors.Is(err, errGNOIUnverified) {
 		t.Fatalf("err = %v, want a failed push", err)
 	}
@@ -413,7 +409,7 @@ func TestGNOIVerifyRetriesThenReportsUnverified(t *testing.T) {
 
 	dev := &fakeGNOIDevice{loadMode: "silent"}
 	e := newGNOITestEnv(t, dev)
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
 	if !errors.Is(err, errGNOIUnverified) {
 		t.Fatalf("err = %v, want installed-could-not-verify", err)
 	}
@@ -432,7 +428,7 @@ func TestGNOIVerifyRetriesThenReportsUnverified(t *testing.T) {
 func TestGNOIInstallResetStillVerifies(t *testing.T) {
 	dev := &fakeGNOIDevice{loadMode: "reset"}
 	e := newGNOITestEnv(t, dev)
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, e.request(t))
 	if err != nil {
 		t.Fatalf("err = %v, steps %v", err, stepNames(steps))
 	}
@@ -484,13 +480,13 @@ func TestGNOIFingerprintModePinsProbedCertificate(t *testing.T) {
 	}
 	req := e.request(t)
 	req.Verify, req.Fingerprint = gnoiVerifyFingerprint, fp
-	if _, err := gnoiPush(context.Background(), e.store, e.allow, req); err != nil {
+	if _, _, err := gnoiPush(context.Background(), e.store, e.allow, req); err != nil {
 		t.Fatalf("push with confirmed fingerprint: %v", err)
 	}
 
 	bad := e.request(t)
 	bad.Verify, bad.Fingerprint = gnoiVerifyFingerprint, "00:11:22"
-	steps, err := gnoiPush(context.Background(), e.store, e.allow, bad)
+	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, bad)
 	if err == nil || len(steps) != 1 || steps[0].Name != "connect" {
 		t.Fatalf("wrong fingerprint: err=%v steps=%v, want connect failure", err, stepNames(steps))
 	}
@@ -520,115 +516,8 @@ func TestGNOIValidateRequestRules(t *testing.T) {
 	}
 }
 
-func TestGNOIPageNeverEchoesPasswordAndRecordsPush(t *testing.T) {
-	dev := &fakeGNOIDevice{}
-	e := newGNOITestEnv(t, dev)
-	auth, err := NewAuth(e.store, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := NewServer(e.store, auth)
-	srv.gnoiAllow = e.allow
-
-	form := url.Values{
-		"target": {e.target}, "username": {testDevUser}, "password": {testDevPass},
-		"verify": {gnoiVerifyUnverified}, "ca": {caRoot}, "template": {"builtin:TLS-Server"},
-		"cn": {"switch.example.net"}, "country": {"NL"}, "state": {"Zuid"}, "org": {"Example"},
-		"dns_sans": {"switch.example.net"}, "rebind_ack": {"on"}, // unverified_ack missing on purpose
-	}
-	post := func(form url.Values) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/admin/gnoi/push", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Origin", "http://"+req.Host)
-		form.Set("csrf", srv.backupToken(req))
-		req.Body = io.NopCloser(strings.NewReader(form.Encode()))
-		rec := httptest.NewRecorder()
-		srv.Routes().ServeHTTP(rec, req)
-		return rec
-	}
-	rec := post(form)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d", rec.Code)
-	}
-	if strings.Contains(rec.Body.String(), testDevPass) {
-		t.Fatal("password echoed in page")
-	}
-	if !strings.Contains(rec.Body.String(), "unverified connections") {
-		t.Fatal("missing unverified acknowledgement not reported")
-	}
-
-	form.Set("unverified_ack", "on")
-	form.Set("verify", gnoiVerifyCA)
-	rec = post(form)
-	if !strings.Contains(rec.Body.String(), "Installed and verified") {
-		t.Fatalf("push did not report success: %s", rec.Body.String())
-	}
-	recs := certRecords(t, e.store)
-	if len(recs) != 1 {
-		t.Fatalf("want one certificate record, got %d", len(recs))
-	}
-	serial := recs[0].Serial
-	det := httptest.NewRecorder()
-	dreq := httptest.NewRequest(http.MethodGet, "/cert/"+serial, nil)
-	dreq.SetPathValue("serial", serial)
-	srv.handleCertDetails(det, dreq)
-	if det.Code != http.StatusOK || !strings.Contains(det.Body.String(), "Pushed to "+e.target) {
-		t.Fatalf("details page lacks push line (status %d)", det.Code)
-	}
-	if strings.Contains(det.Body.String(), testDevPass) {
-		t.Fatal("password leaked into details page")
-	}
-}
-
 func TestParseGNOIAllowErrorsOnBadEntry(t *testing.T) {
 	if _, err := parseGNOIAllow("10.0.0.0/8,nonsense"); err == nil || !strings.Contains(err.Error(), "nonsense") {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestGNOIRejectsMissingCSRFOrOrigin(t *testing.T) {
-	e := newGNOITestEnv(t, &fakeGNOIDevice{})
-	auth, err := NewAuth(e.store, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := NewServer(e.store, auth)
-	srv.gnoiAllow = e.allow
-	for name, mod := range map[string]func(*http.Request, url.Values){
-		"no token":  func(r *http.Request, f url.Values) { r.Header.Set("Origin", "http://"+r.Host) },
-		"no origin": func(r *http.Request, f url.Values) { f.Set("csrf", srv.backupToken(r)) },
-		"other origin": func(r *http.Request, f url.Values) {
-			f.Set("csrf", srv.backupToken(r))
-			r.Header.Set("Origin", "http://evil.example")
-		},
-	} {
-		for _, action := range []string{"push", "fingerprint"} {
-			form := url.Values{"target": {e.target}}
-			req := httptest.NewRequest(http.MethodPost, "/admin/gnoi/"+action, nil)
-			mod(req, form)
-			req.Body = io.NopCloser(strings.NewReader(form.Encode()))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			rec := httptest.NewRecorder()
-			srv.Routes().ServeHTTP(rec, req)
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("%s/%s: status %d, want 403", name, action, rec.Code)
-			}
-		}
-	}
-}
-
-// Browsers send "Origin: null" on form POSTs from pages served with
-// Referrer-Policy no-referrer, which the CSRF check rejects.
-func TestGNOIPageKeepsOriginForSameSitePosts(t *testing.T) {
-	e := newGNOITestEnv(t, &fakeGNOIDevice{})
-	auth, err := NewAuth(e.store, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := NewServer(e.store, auth)
-	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/gnoi", nil))
-	if got := rec.Header().Get("Referrer-Policy"); got != "same-origin" {
-		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,32 @@ type deviceDetailPage struct {
 	Served       *deviceCertRow
 	Taken        time.Time
 	Check        *deviceCheckResult
+	Pushes       []devicePushRow
+}
+
+// devicePushRow is one certificate push to a device, read from the certificate records.
+type devicePushRow struct {
+	Time                           time.Time
+	CertID, Serial, Admin, Outcome string
+}
+
+// devicePushes lists the pushes whose target is this device's gRPC address, newest first.
+func (s *Server) devicePushes(dev Device) ([]devicePushRow, error) {
+	recs, err := s.store.Records()
+	if err != nil {
+		return nil, err
+	}
+	target := net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port))
+	var rows []devicePushRow
+	for _, rec := range recs {
+		for _, p := range rec.Pushes {
+			if p.Target == target {
+				rows = append(rows, devicePushRow{Time: p.Time, CertID: p.CertID, Serial: rec.Serial, Admin: p.Admin, Outcome: p.Outcome})
+			}
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Time.After(rows[j].Time) })
+	return rows, nil
 }
 
 // IsForm tells device.html whether to render the add/edit form or the details.
@@ -85,6 +112,11 @@ func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev 
 	d := s.base(r, dev.Name, "devices")
 	d.Error = errMsg
 	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, KeyAvailable: s.store.CredentialsAvailable(), CSRF: s.backupToken(r), Check: check}
+	pushes, err := s.devicePushes(dev)
+	if err != nil {
+		d.Error = err.Error()
+	}
+	page.Pushes = pushes
 	if dev.Snapshot != nil {
 		page.Snapshot, page.Served = deviceSnapshotView(dev.Snapshot, time.Now())
 		page.Taken = dev.Snapshot.Taken

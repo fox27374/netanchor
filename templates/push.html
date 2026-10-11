@@ -1,0 +1,95 @@
+{{define "content"}}
+{{$v := .Data}}
+<h2>Push certificates to devices</h2>
+
+<div class="panel">
+  <p class="muted">Pick a certificate definition and the devices to install it on. Each device generates its own key. NetAnchor signs the device's request under the definition's CA and profile, then installs the certificate and CA chain. No private key exists in NetAnchor.</p>
+  <p class="muted">Installing a certificate can make a device bind its gNMI/gNOI server to it. NetAnchor has no revoke action. Devices are handled one at a time, and a failure on one does not stop the rest. Devices that already have the definition's certificate id are skipped; renewal comes with Rotate.</p>
+</div>
+
+<div class="panel">
+  <h3>Devices</h3>
+  <form method="get" action="/push" class="form-grid">
+    <div><label for="site">Filter by site</label><input id="site" name="site" value="{{$v.Site}}"></div>
+    <div><label for="tag">Filter by tag</label><input id="tag" name="tag" value="{{$v.Tag}}"></div>
+    <div><button class="btn secondary" type="submit">Apply filter</button></div>
+  </form>
+</div>
+
+<form method="post" action="/push">
+  <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+  <input type="hidden" name="site" value="{{$v.Site}}">
+  <input type="hidden" name="tag" value="{{$v.Tag}}">
+
+  <div class="panel">
+    <h3>Certificate</h3>
+    <label for="definition">Certificate definition</label>
+    <select id="definition" name="definition" required>
+      {{range $v.Defs}}<option value="{{.ID}}" {{if eq .ID $v.Definition}}selected{{end}}>{{.Name}} (certificate id {{.CertID}})</option>{{end}}
+    </select>
+    {{if not $v.Defs}}<p class="muted">No definitions yet. Create one under Device certificate definitions.</p>{{end}}
+    <label for="ca_passphrase" style="margin-top:12px">Issuing CA passphrase (if encrypted)</label>
+    <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
+    <p class="muted" style="font-size:12px">Asked once for this push. Never stored or logged.</p>
+  </div>
+
+  <div class="panel">
+    <h3>Select devices</h3>
+    {{if $v.Devices}}
+    <table>
+      <thead><tr><th>Select</th><th>Name</th><th>Address</th><th>Site</th><th>Verification</th><th>Credentials</th></tr></thead>
+      <tbody>
+      {{range $v.Devices}}
+        <tr>
+          <td><input type="checkbox" name="device" value="{{.ID}}" aria-label="Select {{.Name}}" {{if .Selected}}checked{{end}}></td>
+          <td>{{.Name}}</td>
+          <td class="mono">{{.Address}}</td>
+          <td>{{.Site}}</td>
+          <td>{{if eq .Verify "ca"}}NetAnchor CA{{else if eq .Verify "fingerprint"}}Pinned fingerprint{{else}}Unverified{{end}}</td>
+          <td>{{if .Stored}}stored{{else}}asked below{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty">No devices match.</div>
+    {{end}}
+  </div>
+
+  {{if $v.NeedCreds}}
+  <div class="panel">
+    <h3>Device credentials</h3>
+    <p class="muted" style="font-size:12px">Needed only for selected devices without stored credentials. Used for this push and not stored.{{if not $v.KeyAvailable}} No device key file is configured, so credentials are never stored.{{end}}</p>
+    <div class="form-grid">
+      <div><label for="username">Device username</label><input id="username" name="username" autocomplete="off" value="{{$v.Username}}"></div>
+      <div><label for="password">Device password</label><input id="password" name="password" type="password" autocomplete="off"></div>
+    </div>
+  </div>
+  {{end}}
+
+  <div class="panel">
+    <label><input type="checkbox" name="unverified_ack" value="on"> A selected device is unverified: I accept that its password can be read by anyone on the path.</label>
+    <label style="margin-top:12px"><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
+    <div style="margin-top:16px"><button class="btn" type="submit">Push certificate to selected devices</button></div>
+    <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure, and no revoke is attempted.</p>
+  </div>
+</form>
+
+{{if $v.Outcome}}
+<div class="panel">
+  <h3>Results</h3>
+  <div class="alert {{$v.Class}}" role="status"><strong>{{$v.Outcome}}</strong></div>
+  {{range $v.Results}}
+  <h4>{{.Device}}: {{.Status}}</h4>
+  <div class="alert {{.Class}}">{{.Outcome}}</div>
+  {{if .Steps}}
+  <table>
+    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>{{range .Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
+
+{{end}}
