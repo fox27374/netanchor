@@ -26,8 +26,13 @@
 
 <div class="panel">
   <h3>Subject</h3>
-  <p class="muted" style="font-size:12px">The subject common name is the device FQDN, or the device name when the FQDN is empty.</p>
+  <p class="muted" style="font-size:12px">One definition serves every device: the common name and SANs are filled from each device when it is pushed.</p>
   <div class="form-grid">
+    <div><label for="cn_source">Common name</label>
+      <select id="cn_source" name="cn_source">
+        <option value="fqdn" {{if ne $v.Form.CNSource "name"}}selected{{end}}>Device FQDN (device name if the FQDN is empty)</option>
+        <option value="name" {{if eq $v.Form.CNSource "name"}}selected{{end}}>Device name</option>
+      </select></div>
     <div><label for="country">Country (2 letters)</label><input id="country" name="country" required maxlength="2" value="{{$v.Form.Country}}"></div>
     <div><label for="state">State</label><input id="state" name="state" required value="{{$v.Form.State}}"></div>
     <div><label for="organization">Organization</label><input id="organization" name="organization" required value="{{$v.Form.Organization}}"></div>

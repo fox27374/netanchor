@@ -176,7 +176,9 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	var dnsNames []string
 	var ips []net.IP
 	if dev.FQDN != "" {
-		cn = dev.FQDN
+		if def.CNSource != definitionCNName {
+			cn = dev.FQDN
+		}
 		dnsNames = append(dnsNames, dev.FQDN)
 	}
 	if ip := net.ParseIP(dev.ManagementIP); ip != nil {

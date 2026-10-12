@@ -333,3 +333,31 @@ func TestPushPageKeepsOriginForSameSitePosts(t *testing.T) {
 		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
 	}
 }
+
+func TestPushUsesDeviceNameAsCNWhenDefinitionSaysSo(t *testing.T) {
+	dev := &fakeGNOIDevice{}
+	e := newGNOITestEnv(t, dev)
+	def, tpl := testDefinition(t, e.store)
+	def.CNSource = definitionCNName
+	if err := e.store.SaveDefinition(&def); err != nil {
+		t.Fatal(err)
+	}
+	d := testDevice(t, e.target, "switch", e.fp)
+	d.FQDN, d.ManagementIP = "switch.example.net", "127.0.0.1"
+	d = saveTestDevice(t, e.store, d)
+
+	if results := pushAll(t, e, def, tpl, d); results[0].Status != "ok" {
+		t.Fatalf("push: %+v", results[0])
+	}
+	block, _ := pem.Decode(dev.snap().cert)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.Subject.CommonName != "switch" {
+		t.Fatalf("CN %q, want the device name", cert.Subject.CommonName)
+	}
+	if len(cert.DNSNames) == 0 || cert.DNSNames[0] != "switch.example.net" || len(cert.IPAddresses) == 0 || !cert.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")) {
+		t.Fatalf("SANs dns=%v ip=%v, want the FQDN and management IP", cert.DNSNames, cert.IPAddresses)
+	}
+}

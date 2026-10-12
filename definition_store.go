@@ -30,9 +30,16 @@ type CertDefinition struct {
 	ValidDays    int       `json:"valid_days"`
 	CertID       string    `json:"cert_id"`
 	ExtraSANs    []string  `json:"extra_sans,omitempty"` // fixed DNS or IP SANs added to every push
+	CNSource     string    `json:"cn_source,omitempty"`  // "name" or "fqdn" (default): which device field becomes the CN
 	Created      time.Time `json:"created"`
 	Updated      time.Time `json:"updated"`
 }
+
+// CNSource values. Empty means FQDN, the behaviour before the setting existed.
+const (
+	definitionCNName = "name"
+	definitionCNFQDN = "fqdn"
+)
 
 func (s *Store) definitionsPath() string { return filepath.Join(s.dir, "definitions.json") }
 

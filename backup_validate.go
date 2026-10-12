@@ -345,7 +345,8 @@ func validateDefinitions(dir string) error {
 	for _, d := range defs {
 		if d.ID == "" || ids[d.ID] || !validTemplateName(d.Name) || names[strings.ToLower(d.Name)] || !backupCAID(d.CAID) ||
 			d.Profile == "" || len(d.Profile) > 64 || d.ValidDays < 1 || d.ValidDays > 36500 || !validCertID(d.CertID) ||
-			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 {
+			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 ||
+			(d.CNSource != "" && d.CNSource != definitionCNName && d.CNSource != definitionCNFQDN) {
 			return errors.New("invalid definition record")
 		}
 		for _, san := range d.ExtraSANs {
