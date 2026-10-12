@@ -39,7 +39,7 @@
   input:required:invalid:not([type=checkbox]), select:required:invalid, textarea:required:invalid { border-color:var(--err); }
   .row { display:flex; gap:16px; flex-wrap:wrap; }
   .row > div { flex:1; min-width:180px; }
-  .btn { display:inline-block; margin-top:20px; background:var(--accent); color:var(--button-text); border:none; padding:11px 20px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none; }
+  .btn { display:inline-block; margin-top:20px; background:var(--accent); color:var(--button-text); border:1px solid transparent; padding:10px 20px; border-radius:8px; font-family:inherit; font-size:14px; line-height:1.2; font-weight:600; cursor:pointer; text-decoration:none; }
   .btn:hover { filter:brightness(1.08); }
   .btn.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
   table { width:100%; border-collapse:collapse; font-size:14px; }
