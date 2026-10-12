@@ -21,8 +21,8 @@ func TestCertificatesPageAndNavGroups(t *testing.T) {
 		want   []string
 		not    []string
 	}{
-		{"admin", admin.Result().Cookies()[0].String(), []string{"Certificate Management", "Device Management", "Issue Certificate", "Push (gNOI)", "Issued certificates"}, nil},
-		{"viewer", viewer.Result().Cookies()[0].String(), []string{"Certificate Management", "Device Management", "Issued certificates", "SCEP"}, []string{"Issue Certificate", "Push (gNOI)"}},
+		{"admin", admin.Result().Cookies()[0].String(), []string{"Certificate Management", "Device Management", "Issue Certificate", ">Push<", "Issued certificates"}, nil},
+		{"viewer", viewer.Result().Cookies()[0].String(), []string{"Certificate Management", "Device Management", "Issued certificates", "SCEP"}, []string{"Issue Certificate", ">Push<"}},
 	} {
 		r := httptest.NewRequest("GET", "/certificates", nil)
 		r.Header.Set("Cookie", tc.cookie)

@@ -60,6 +60,7 @@
   .alert { padding:14px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; }
   .alert.err { background:var(--err-bg); border:1px solid var(--err); color:var(--err-fg); }
   .alert.ok { background:var(--ok-bg); border:1px solid var(--ok); color:var(--ok-fg); }
+  .alert.warn { background:var(--warn-bg); border:1px solid var(--warn-fg); color:var(--warn-fg); }
   .toast { position:fixed; top:76px; right:24px; z-index:20; max-width:min(420px, calc(100vw - 48px)); box-shadow:0 8px 24px #0008; display:flex; align-items:flex-start; gap:16px; }
   .toast p { margin:6px 0 0; }
   .toast button { background:none; border:0; color:inherit; cursor:pointer; font-size:22px; line-height:1; }
@@ -255,8 +256,7 @@
     <div class="nav-group" role="group" aria-labelledby="devices-nav">
       <h2 class="nav-heading" id="devices-nav">Device Management</h2>
       <a href="/devices" {{if eq .Active "devices"}}class="active" aria-current="page"{{end}}>Devices</a>
-      {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
-      {{if .IsAdmin}}<a href="/logs" {{if eq .Active "logs"}}class="active" aria-current="page"{{end}}>Logs</a>{{end}}
+      {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push</a>{{end}}
       <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
     </div>
     {{if .IsAdmin}}
@@ -264,6 +264,7 @@
       <h2 class="nav-heading" id="management-nav">Management</h2>
       <a href="/users" {{if eq .Active "users"}}class="active" aria-current="page"{{end}}>Users</a>
       <a href="/admin/backup" {{if eq .Active "backup"}}class="active" aria-current="page"{{end}}>Backup &amp; Restore</a>
+      <a href="/logs" {{if eq .Active "logs"}}class="active" aria-current="page"{{end}}>Logs</a>
     </div>
     {{end}}
     <div class="nav-secondary"><a href="/tools" {{if eq .Active "tools"}}class="active" aria-current="page"{{end}}>Tools</a></div>

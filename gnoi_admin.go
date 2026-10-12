@@ -72,14 +72,9 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 			admin = "(auth disabled)"
 		}
 		page.Results, page.Outcome, page.Class = s.pushFromForm(w, r, admin)
-		if page.Class == "ok" && len(page.Results) > 0 {
-			// Everything installed: a toast is enough, the per-device steps are in the log.
-			noun := "devices"
-			if len(page.Results) == 1 {
-				noun = "device"
-			}
-			d.Flash = &caFlash{Title: fmt.Sprintf("Successfully pushed to %d %s", len(page.Results), noun), Body: "Installed and verified on every selected device."}
-			page.Results, page.Outcome = nil, ""
+		if flash := pushToast(page.Results); flash != nil {
+			// Nothing failed: a toast is enough, the per-device steps are in the log.
+			d.Flash, page.Results, page.Outcome = flash, nil, ""
 		} else {
 			page.Results = pushProblems(page.Results)
 		}
@@ -282,6 +277,38 @@ func pushSummary(results []devicePushResult) (string, string) {
 		}
 	}
 	return fmt.Sprintf("%d installed, %d skipped, %d unverified, %d failed.", n["ok"], n["skipped"], n["unverified"], n["failed"]), class
+}
+
+// pushToast summarises a push in which every device installed or was skipped as
+// already installed. It returns nil when a device failed or could not be verified.
+func pushToast(results []devicePushResult) *caFlash {
+	if len(results) == 0 {
+		return nil
+	}
+	installed := 0
+	var skipped []string
+	for _, res := range results {
+		switch res.Status {
+		case "ok":
+			installed++
+		case "skipped":
+			skipped = append(skipped, res.Device)
+		default:
+			return nil
+		}
+	}
+	f := &caFlash{Title: "Nothing pushed", Body: "Installed and verified on every selected device."}
+	if installed > 0 {
+		noun := "devices"
+		if installed == 1 {
+			noun = "device"
+		}
+		f.Title = fmt.Sprintf("Successfully pushed to %d %s", installed, noun)
+	}
+	if len(skipped) > 0 {
+		f.Body = "Already installed, skipped: " + strings.Join(skipped, ", ") + "."
+	}
+	return f
 }
 
 // pushProblems keeps the devices that did not install cleanly; the summary still counts all.
