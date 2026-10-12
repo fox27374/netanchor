@@ -47,6 +47,8 @@ type fakeGNOIDevice struct {
 	lastCert  []byte // PEM the device received in LoadCertificate
 	lastChain int    // number of CA certificates received with it
 	devPubKey *rsa.PublicKey
+	devKey    *rsa.PrivateKey
+	rebind    bool   // serve the last installed certificate on the gRPC port, like the lab switch
 	sudi      []byte // PEM of a CISCO_IDEVID certificate listed by GetCertificates; nil = none
 }
 
@@ -123,7 +125,7 @@ func (f *fakeGNOIDevice) Install(stream grpc.BidiStreamingServer[gnoicert.Instal
 		return err
 	}
 	f.mu.Lock()
-	f.devPubKey = &key.PublicKey
+	f.devPubKey, f.devKey = &key.PublicKey, key
 	f.mu.Unlock()
 	// The device CSR carries SANs and an extension the push must ignore.
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
@@ -215,7 +217,16 @@ func newGNOITestEnv(t *testing.T, dev *fakeGNOIDevice) *gnoiTestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{*srvCert}})))
+	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		dev.mu.Lock()
+		defer dev.mu.Unlock()
+		if dev.rebind && dev.lastCert != nil {
+			if b, _ := pem.Decode(dev.lastCert); b != nil {
+				return &tls.Certificate{Certificate: [][]byte{b.Bytes}, PrivateKey: dev.devKey}, nil
+			}
+		}
+		return srvCert, nil
+	}})))
 	gnoicert.RegisterCertificateManagementServer(srv, dev)
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)

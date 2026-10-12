@@ -136,8 +136,30 @@ func TestPushSkipsDeviceWithExistingCertID(t *testing.T) {
 	}
 }
 
+func TestPushKeepsPinWhenDeviceDoesNotRebind(t *testing.T) {
+	defer func(w time.Duration) { gnoiRebindWait = w }(gnoiRebindWait)
+	gnoiRebindWait = 10 * time.Millisecond
+	e := newGNOITestEnv(t, &fakeGNOIDevice{})
+	def, tpl := testDefinition(t, e.store)
+	d := testDevice(t, e.target, "switch")
+	d.Verify, d.Pin = gnoiVerifyFingerprint, e.fp
+	d = saveTestDevice(t, e.store, d)
+
+	results := pushAll(t, e, def, tpl, d)
+	if results[0].Status != "ok" || !strings.Contains(results[0].Outcome, "pin kept") || !strings.Contains(results[0].Outcome, "Certificates refreshed") {
+		t.Fatalf("push: %+v", results[0])
+	}
+	got, _, err := e.store.GetDevice(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalizeFingerprint(got.Pin) != normalizeFingerprint(e.fp) {
+		t.Fatalf("pin %s, want the still-served certificate %s", got.Pin, e.fp)
+	}
+}
+
 func TestPushRepinsFingerprintDeviceAfterInstall(t *testing.T) {
-	dev := &fakeGNOIDevice{}
+	dev := &fakeGNOIDevice{rebind: true}
 	e := newGNOITestEnv(t, dev)
 	def, tpl := testDefinition(t, e.store)
 	d := testDevice(t, e.target, "switch")

@@ -27,6 +27,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// gnoiRebindWait and gnoiRebindTries give a device ~9 s after install to rebind
+// its gRPC server to the new certificate before the old pin is kept. Vars for tests.
+var (
+	gnoiRebindWait  = 3 * time.Second
+	gnoiRebindTries = 4
+)
+
 // Timeouts for one push. The verify window sits inside the overall budget: the
 // push fails early only if the budget ends first.
 const (

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -216,29 +217,61 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	return res
 }
 
-// afterInstall re-pins a fingerprint device to the certificate just installed (the
-// device may have rebound its gRPC server to it), then refreshes the device snapshot.
-// It returns a note for the results panel.
+// afterInstall re-pins a fingerprint device if its gRPC server now presents the
+// certificate just installed. Not every device rebinds, so the pin follows what
+// the port actually serves. Then it refreshes the device snapshot. It returns a
+// note for the results panel.
 func afterInstall(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, der []byte, target string) string {
+	note := ""
 	if dev.Verify == gnoiVerifyFingerprint {
-		sum := sha256.Sum256(der)
-		pin := hexColons(sum[:])
-		if err := st.UpdateDevice(dev.ID, func(d *Device) { d.Pin, d.PinAddress = pin, target }); err != nil {
-			return "Could not save the new pin: " + err.Error() + "."
+		served, err := gnoiServedAfterInstall(ctx, allow, target, der)
+		switch {
+		case err != nil:
+			return "Could not read the served certificate, pin kept: " + err.Error() + "."
+		case bytes.Equal(served, der):
+			sum := sha256.Sum256(der)
+			pin := hexColons(sum[:])
+			if err := st.UpdateDevice(dev.ID, func(d *Device) { d.Pin, d.PinAddress = pin, target }); err != nil {
+				return "Could not save the new pin: " + err.Error() + "."
+			}
+			dev.Pin = pin
+			note = "The gRPC server now uses the new certificate; pin updated. "
+		default:
+			note = "The gRPC server still presents its previous certificate; pin kept. "
 		}
-		dev.Pin = pin
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, gnoiPushTimeout)
 	defer cancel()
 	rep, _, err := gnoiInspect(snapCtx, st, allow, dev, creds, true, "push")
 	if err != nil {
-		return "Certificates not refreshed: " + err.Error() + "."
+		return note + "Certificates not refreshed: " + err.Error() + "."
 	}
 	snap := &DeviceSnapshot{Taken: time.Now().UTC(), Certs: rep.Certs, Served: rep.Served}
 	if err := st.UpdateDevice(dev.ID, func(d *Device) { d.Snapshot = snap }); err != nil {
-		return "Could not save the snapshot: " + err.Error() + "."
+		return note + "Could not save the snapshot: " + err.Error() + "."
 	}
-	return "Certificates refreshed."
+	return note + "Certificates refreshed."
+}
+
+// gnoiServedAfterInstall returns the certificate the gRPC port presents, giving the
+// device a short while to rebind to newDER.
+func gnoiServedAfterInstall(ctx context.Context, allow []*net.IPNet, target string, newDER []byte) ([]byte, error) {
+	var served []byte
+	var err error
+	for i := 0; i < gnoiRebindTries; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return served, err
+			case <-time.After(gnoiRebindWait):
+			}
+		}
+		served, err = gnoiServedCert(ctx, allow, target)
+		if err == nil && bytes.Equal(served, newDER) {
+			return served, nil
+		}
+	}
+	return served, err
 }
 
 // pushSummary counts the outcomes and picks the worst alert class.
