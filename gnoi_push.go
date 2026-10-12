@@ -156,7 +156,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", req.Username, "password", req.Password)
 	list, err := cli.GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return nil, nil, run.failed("auth", fmt.Errorf("device rejected the request: %s %s", status.Code(err), status.Convert(err).Message()))
+		return nil, nil, run.failed("auth", gnoiRejected(err))
 	}
 	for _, c := range list.GetCertificateInfo() {
 		if c.GetCertificateId() == req.CertID {
@@ -568,4 +568,14 @@ func (r *gnoiRun) last() string {
 		return "start"
 	}
 	return r.steps[len(r.steps)-1].Name
+}
+
+// gnoiRejected describes an RPC error from the device. Unimplemented means the
+// device has no gNOI certificate service, which is a device setup problem.
+func gnoiRejected(err error) error {
+	st := status.Convert(err)
+	if st.Code() == codes.Unimplemented {
+		return errors.New("device does not support gNOI certificate management (Unimplemented); check the IOS-XE version and the gnxi configuration")
+	}
+	return fmt.Errorf("device rejected the request: %s %s", st.Code(), st.Message())
 }

@@ -17,7 +17,6 @@ import (
 
 	gnoicert "github.com/openconfig/gnoi/cert"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 // deviceExpiryWarn is how close to expiry a certificate is highlighted.
@@ -69,7 +68,7 @@ func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device,
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", creds.Username, "password", creds.Password)
 	list, err := gnoicert.NewCertificateManagementClient(conn).GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return rep, run.steps, run.failed("auth", fmt.Errorf("device rejected the request: %s %s", status.Code(err), status.Convert(err).Message()))
+		return rep, run.steps, run.failed("auth", gnoiRejected(err))
 	}
 	run.ok("auth", fmt.Sprintf("%d certificates listed", len(list.GetCertificateInfo())))
 
