@@ -78,6 +78,7 @@ type gnoiPushRequest struct {
 	CertID       string
 	ValidDays    int
 	Admin        string
+	Device       string // device name, for the log only
 }
 
 // gnoiStep is one line of the step-by-step result.
@@ -93,7 +94,10 @@ type gnoiStep struct {
 // device already has the id, and any other error for a failed push. Once a serial
 // exists, the outcome is recorded on that certificate.
 func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRequest) (steps []gnoiStep, installed []byte, err error) {
-	run := &gnoiRun{}
+	run := &gnoiRun{device: req.Device, op: "push"}
+	if run.device == "" {
+		run.device = req.Target
+	}
 	var serial string
 	defer func() {
 		if serial == "" {
@@ -156,7 +160,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	}
 	for _, c := range list.GetCertificateInfo() {
 		if c.GetCertificateId() == req.CertID {
-			run.steps = append(run.steps, gnoiStep{Name: "auth", Status: "skipped", Detail: fmt.Sprintf("certificate id %q: %s", req.CertID, errGNOIExists)})
+			run.record(gnoiStep{Name: "auth", Status: "skipped", Detail: fmt.Sprintf("certificate id %q: %s", req.CertID, errGNOIExists)})
 			return nil, nil, errGNOIExists
 		}
 	}
@@ -238,7 +242,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		case <-time.After(gnoiVerifyInterval):
 		}
 	}
-	run.steps = append(run.steps, gnoiStep{Name: "verify", Status: "unconfirmed", Detail: fmt.Sprintf("no answer with the certificate after %d attempts", attempts)})
+	run.record(gnoiStep{Name: "verify", Status: "unconfirmed", Detail: fmt.Sprintf("no answer with the certificate after %d attempts", attempts)})
 	return nil, nil, errGNOIUnverified
 }
 
@@ -538,17 +542,24 @@ func normalizeFingerprint(s string) string {
 	return strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(strings.TrimSpace(s)))
 }
 
-// gnoiRun collects the step-by-step result.
+// gnoiRun collects the step-by-step result and logs each step. op is the
+// operation (test, add, refresh or push). Never put credentials in a detail.
 type gnoiRun struct {
-	steps []gnoiStep
+	device, op string
+	steps      []gnoiStep
+}
+
+func (r *gnoiRun) record(st gnoiStep) {
+	r.steps = append(r.steps, st)
+	log.Printf("gnoi device=%s op=%s step=%s status=%s detail=%q", r.device, r.op, st.Name, st.Status, st.Detail)
 }
 
 func (r *gnoiRun) ok(name, detail string) {
-	r.steps = append(r.steps, gnoiStep{Name: name, Status: "ok", Detail: detail})
+	r.record(gnoiStep{Name: name, Status: "ok", Detail: detail})
 }
 
 func (r *gnoiRun) failed(name string, err error) error {
-	r.steps = append(r.steps, gnoiStep{Name: name, Status: "failed", Detail: err.Error()})
+	r.record(gnoiStep{Name: name, Status: "failed", Detail: err.Error()})
 	return err
 }
 

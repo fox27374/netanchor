@@ -297,7 +297,7 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request, f deviceForm)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)
 	defer cancel()
-	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, deviceCreds{Username: f.Username, Password: password}, true)
+	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, deviceCreds{Username: f.Username, Password: password}, true, "add")
 	if err != nil {
 		f.Check = &deviceCheckResult{Steps: steps, Outcome: "Failed at " + steps[len(steps)-1].Name + ": " + err.Error(), Class: "err"}
 		s.renderDeviceForm(w, r, f, "")

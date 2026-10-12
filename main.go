@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -43,6 +44,15 @@ func main() {
 	if *health {
 		os.Exit(runHealthCheck(*addr, tlsEnabled))
 	}
+
+	// Log to stdout and to the rotating file in the data dir (shown on the Logs page).
+	var logOut io.Writer = os.Stderr
+	if al, err := openAppLog(*dataDir); err != nil {
+		log.Printf("log file disabled: %v", err)
+	} else {
+		logOut = io.MultiWriter(os.Stderr, al)
+	}
+	log.SetOutput(logOut)
 
 	if err := recoverRestore(*dataDir); err != nil {
 		log.Fatalf("restore recovery failed; refusing to open data: %v", err)

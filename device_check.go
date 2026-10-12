@@ -43,9 +43,9 @@ var sudiSubject = regexp.MustCompile(`PID:([^\s,]+)\s+SN:([^\s,]+)`)
 // gnoiInspect connects to the device with the given verification and credentials,
 // lists its certificates and, when served is set, reads the certificate the gRPC
 // port presents. It never changes the device.
-func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, served bool) (deviceReport, []gnoiStep, error) {
+func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, served bool, op string) (deviceReport, []gnoiStep, error) {
 	var rep deviceReport
-	run := &gnoiRun{}
+	run := &gnoiRun{device: dev.Name, op: op}
 	req := gnoiPushRequest{Target: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)), Verify: dev.Verify, Fingerprint: dev.Pin}
 	var roots *x509.CertPool
 	if dev.Verify == gnoiVerifyCA {
@@ -212,7 +212,11 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)
 	defer cancel()
-	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, creds, refresh)
+	op := "test"
+	if refresh {
+		op = "refresh"
+	}
+	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, creds, refresh, op)
 	res := &deviceCheckResult{Steps: steps, Outcome: "Test connection succeeded.", Class: "ok"}
 	if err != nil {
 		res.Outcome, res.Class = "Failed at "+steps[len(steps)-1].Name+": "+err.Error(), "err"

@@ -65,7 +65,7 @@ func TestDeviceTestConnectionFillsModelAndSerial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, creds, false)
+	rep, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, creds, false, "test")
 	if err != nil {
 		t.Fatalf("inspect: %v (steps %v)", err, stepNames(steps))
 	}
@@ -84,7 +84,7 @@ func TestDeviceTestConnectionWithoutSUDI(t *testing.T) {
 	env := newGNOITestEnv(t, &fakeGNOIDevice{})
 	d := deviceForEnv(t, env, true)
 	creds := deviceCreds{Username: testDevUser, Password: testDevPass}
-	rep, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, creds, false)
+	rep, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, creds, false, "test")
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestDeviceTestConnectionWithoutSUDI(t *testing.T) {
 func TestDeviceCheckAuthFailure(t *testing.T) {
 	env := newGNOITestEnv(t, &fakeGNOIDevice{})
 	d := deviceForEnv(t, env, false)
-	_, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, deviceCreds{Username: testDevUser, Password: "wrong"}, false)
+	_, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, deviceCreds{Username: testDevUser, Password: "wrong"}, false, "test")
 	if err == nil {
 		t.Fatal("expected auth failure")
 	}
@@ -112,7 +112,7 @@ func TestDeviceCheckPinMismatchStopsAtConnect(t *testing.T) {
 	env := newGNOITestEnv(t, &fakeGNOIDevice{})
 	d := deviceForEnv(t, env, false)
 	d.Pin = "00:" + strings.Repeat("11:", 31) + "11"
-	_, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, deviceCreds{Username: testDevUser, Password: testDevPass}, false)
+	_, steps, err := gnoiInspect(context.Background(), env.store, env.allow, d, deviceCreds{Username: testDevUser, Password: testDevPass}, false, "test")
 	if err == nil {
 		t.Fatal("expected connect failure on pin mismatch")
 	}

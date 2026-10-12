@@ -1,0 +1,11 @@
+{{define "content"}}
+{{$v := .Data}}
+<h2>Logs</h2>
+
+<div class="panel">
+  <p class="muted">The most recent lines of NetAnchor's log, newest at the bottom. Includes requests, errors and each gNOI step of device tests, adds, refreshes and pushes. <a href="/logs.txt">Plain text</a></p>
+</div>
+
+<pre id="log" style="max-height:70vh;overflow:auto;white-space:pre-wrap">{{$v}}</pre>
+<script>var p = document.getElementById("log"); p.scrollTop = p.scrollHeight;</script>
+{{end}}

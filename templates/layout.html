@@ -246,6 +246,7 @@
       <h2 class="nav-heading" id="devices-nav">Device Management</h2>
       <a href="/devices" {{if eq .Active "devices"}}class="active" aria-current="page"{{end}}>Devices</a>
       {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
+      {{if .IsAdmin}}<a href="/logs" {{if eq .Active "logs"}}class="active" aria-current="page"{{end}}>Logs</a>{{end}}
       <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
     </div>
     {{if .IsAdmin}}

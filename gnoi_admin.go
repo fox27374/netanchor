@@ -195,6 +195,7 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 		Verify: dev.Verify, CAID: def.CAID, TrustCAID: dev.CAID, Fingerprint: dev.Pin, CAPassphrase: caPass,
 		Template: tmpl, CommonName: cn, Country: def.Country, State: def.State, City: def.City, Organization: def.Organization, OU: def.OU,
 		DNSNames: dnsNames, IPs: ips, CertID: def.CertID, ValidDays: def.ValidDays, Admin: admin,
+		Device: dev.Name,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, gnoiPushTimeout)
@@ -229,7 +230,7 @@ func afterInstall(ctx context.Context, st *Store, allow []*net.IPNet, dev Device
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, gnoiPushTimeout)
 	defer cancel()
-	rep, _, err := gnoiInspect(snapCtx, st, allow, dev, creds, true)
+	rep, _, err := gnoiInspect(snapCtx, st, allow, dev, creds, true, "push")
 	if err != nil {
 		return "Certificates not refreshed: " + err.Error() + "."
 	}
