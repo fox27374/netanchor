@@ -116,7 +116,7 @@
   {{if $v.Served}}<p style="overflow-wrap:anywhere">The gRPC port presents a certificate the device does not list: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
   {{if $v.Snapshot}}
   <table class="certs">
-    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th>{{if .IsAdmin}}<th>Switch</th>{{end}}</tr></thead>
+    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th>{{if .IsAdmin}}<th>Action</th>{{end}}</tr></thead>
     <tbody>
     {{range $v.Snapshot}}
       <tr>
@@ -128,10 +128,10 @@
           {{if .GRPC}}<span class="muted">protected: gRPC server</span>
           {{else if .SUDI}}<span class="muted">protected: Cisco SUDI</span>
           {{else if .CertID}}
-          <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates" class="revoke-form">
+          <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input type="hidden" name="csrf" value="{{$v.CSRF}}">
             <input type="hidden" name="cert_id" value="{{.CertID}}">
-            <label><input type="checkbox" name="confirm" value="on" required> I understand this removes {{.CertID}} from the switch</label>
+            <label style="white-space:nowrap;margin:0"><input type="checkbox" name="confirm" value="on" required aria-label="I understand this removes {{.CertID}} from the switch"> confirm</label>
             <button class="btn secondary" type="submit">Delete</button>
           </form>
           {{end}}
