@@ -90,6 +90,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /devices/{id}/delete", s.handleDeviceDelete)
 	mux.HandleFunc("POST /devices/{id}/test", s.handleDeviceTest)
 	mux.HandleFunc("POST /devices/{id}/refresh", s.handleDeviceRefresh)
+	mux.HandleFunc("POST /devices/{id}/certificates/revoke", s.handleDeviceRevoke)
 	mux.HandleFunc("GET /definitions", s.handleDefinitions)
 	mux.HandleFunc("GET /definitions/new", s.handleDefinitionNew)
 	mux.HandleFunc("POST /definitions/save", s.handleDefinitionSave)

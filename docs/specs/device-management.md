@@ -17,7 +17,8 @@ certificates to one or many devices over gNOI without touching the device CLI.
   `LoadCertificate` (cert + CA chain, no key). Private keys never exist in NetAnchor.
 - `GenerateCSR` needs Country, State and Organization. Key is RSA 2048 (device).
 - Installing a cert can rebind the device's own gNMI/gNOI server to it
-  (`gnxi secure-trustpoint`). Revoke is not offered.
+  (`gnxi secure-trustpoint`). Revoke removes the cert from the switch only (see
+  "Revoke on the device" below), and it is refused for the cert the gRPC port serves.
 - Open calls are reset after a load; verify on a fresh connection, retry up to 30 s.
 - Device clocks drift; pushed certs are backdated 24 h (`gnoiBackdate`).
 - `Rotate` on an unknown cert_id returns `NotFound`. `Rotate` is otherwise untested.
@@ -49,6 +50,18 @@ certificates to one or many devices over gNOI without touching the device CLI.
 - "Refresh certificates": live `GetCertificates` list (cert_id, subject, issuer,
   expiry) plus which certificate the gRPC port serves. Stored as a snapshot with a
   timestamp. No background polling.
+- Revoke on the device: each listed certificate except protected ones has a Delete
+  control with a required checkbox ("I understand this removes <cert id> from the
+  switch"). It calls gNOI `RevokeCertificates` with that cert_id, then refreshes the
+  snapshot on a fresh connection and shows the steps in the certificates panel.
+  NetAnchor's own issued-certificate records are not changed.
+  - Protected, with no Delete control: the certificate the gRPC port presents (the
+    row is marked "protected: gRPC server"), and Cisco SUDI/IDEVID (`CISCO_IDEVID*`,
+    "protected: Cisco SUDI").
+  - The server enforces the same rules at delete time, so a stale page cannot bypass
+    them. The gRPC check compares the certificate the port presents on the same
+    connection, DER for DER, with the certificate listed for the cert_id. An unlisted
+    cert_id is refused. Admin and CSRF checks apply.
 - Roles: admins create/edit/delete devices, manage credentials, run tests and pushes.
   Normal users can view devices and their snapshots.
 - `NETANCHOR_GNOI_ALLOW` stays (user decision 2026-10-10, replacing the earlier
@@ -87,7 +100,7 @@ drops credentials that do not decrypt with it, and shows a visible warning.
 ## Non-goals (for now)
 Key import (SSH/CLI path), `Rotate`/renewal (Phase C), NX-OS lab support, scheduled
 refresh, expiry alerts, gNMI discovery, `LoadCertificateAuthorityBundle`, mTLS to
-devices, revoke on devices.
+devices, revoke of the gRPC-served or SUDI certificate (refused; see "Revoke on the device").
 
 ## Phases (each its own patch release, each lab-tested before the next)
 - A: menu split; Devices with encrypted credentials, pinning, Test connection, live

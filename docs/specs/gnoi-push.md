@@ -34,7 +34,7 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
   verify.
 - Warning on the page: installing a cert can rebind the switch's own gNMI/gNOI server
   to it, and revoking it can take that server down. A required checkbox ("this may
-  rebind the gRPC server") gates the push. No revoke feature in this phase.
+  rebind the gRPC server") gates the push. Revoke exists on the device page, see below.
 - Verify the install on a fresh connection (open calls are reset after a load), retrying
   up to 30 s. If it never answers, report "installed, could not verify, check the
   device (it may have rebound its gRPC server)", not a failed push.
@@ -81,8 +81,9 @@ README.md. Reuse: ca.go signing, certtemplates.go / profile_policy.go.
 - **Side effect:** installing a cert makes the switch bind its own gNMI/gNOI server to
   it (`gnxi secure-trustpoint <cert_id>`). Revoking that cert removed the trustpoint
   and port 57400 stopped listening until fixed on the CLI. The page must warn about
-  this, must not offer revoke in this phase, and lab tests need a cert_id the user is
-  prepared to rebind.
+  this. Revoke (device page, `RevokeCertificates`) refuses the certificate the gRPC port
+  presents on the same connection, and refuses Cisco SUDI/IDEVID and unlisted ids on the
+  server, so the trustpoint that serves gRPC cannot be removed from the UI.
 - Open connections are reset right after a load (`Unavailable: Cancelling all calls`),
   so verify the install on a fresh connection.
 - Untested: `Rotate` on an existing id, `LoadCertificateAuthorityBundle`, NX-OS.

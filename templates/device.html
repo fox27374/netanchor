@@ -112,13 +112,32 @@
   {{if $v.Taken.IsZero}}
   <div class="empty">Not refreshed yet.</div>
   {{else}}
-  <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Green: more than 30 days left, orange: under 30 days, red: expired.</p>
-  {{if $v.Served}}<p style="overflow-wrap:anywhere">Served on the gRPC port: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
+  <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Green: more than 30 days left, orange: under 30 days, red: expired. <span class="pill">gRPC</span> marks the certificate the gRPC server uses.</p>
+  {{if $v.Served}}<p style="overflow-wrap:anywhere">The gRPC port presents a certificate the device does not list: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
   {{if $v.Snapshot}}
   <table class="certs">
-    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th></tr></thead>
+    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th>{{if .IsAdmin}}<th>Switch</th>{{end}}</tr></thead>
     <tbody>
-    {{range $v.Snapshot}}{{template "device_cert_row" .}}{{end}}
+    {{range $v.Snapshot}}
+      <tr>
+        <td class="mono">{{.CertID}}{{if .GRPC}} <span class="pill san">gRPC</span>{{end}}</td>
+        <td class="wrap">{{.Subject}}</td>
+        <td class="wrap">{{.Issuer}}</td>
+        <td>{{if .Left}}<span class="pill {{.Class}}">{{.Left}}</span>{{end}}</td>
+        {{if $.IsAdmin}}<td>
+          {{if .GRPC}}<span class="muted">protected: gRPC server</span>
+          {{else if .SUDI}}<span class="muted">protected: Cisco SUDI</span>
+          {{else if .CertID}}
+          <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates" class="revoke-form">
+            <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+            <input type="hidden" name="cert_id" value="{{.CertID}}">
+            <label><input type="checkbox" name="confirm" value="on" required> I understand this removes {{.CertID}} from the switch</label>
+            <button class="btn secondary" type="submit">Delete</button>
+          </form>
+          {{end}}
+        </td>{{end}}
+      </tr>
+    {{end}}
     </tbody>
   </table>
   {{else}}
@@ -167,7 +186,7 @@
 
 {{define "device_cert_row"}}
       <tr>
-        <td class="mono">{{.CertID}}</td>
+        <td class="mono">{{.CertID}}{{if .GRPC}} <span class="pill san">gRPC</span>{{end}}</td>
         <td class="wrap">{{.Subject}}</td>
         <td class="wrap">{{.Issuer}}</td>
         <td>{{if .Left}}<span class="pill {{.Class}}">{{.Left}}</span>{{end}}</td>

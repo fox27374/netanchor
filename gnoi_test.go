@@ -48,8 +48,9 @@ type fakeGNOIDevice struct {
 	lastChain int    // number of CA certificates received with it
 	devPubKey *rsa.PublicKey
 	devKey    *rsa.PrivateKey
-	rebind    bool   // serve the last installed certificate on the gRPC port, like the lab switch
-	sudi      []byte // PEM of a CISCO_IDEVID certificate listed by GetCertificates; nil = none
+	rebind    bool     // serve the last installed certificate on the gRPC port, like the lab switch
+	sudi      []byte   // PEM of a CISCO_IDEVID certificate listed by GetCertificates; nil = none
+	revokes   []string // cert ids sent to RevokeCertificates, in order
 }
 
 type devSnap struct {
@@ -93,6 +94,31 @@ func (f *fakeGNOIDevice) GetCertificates(ctx context.Context, _ *gnoicert.GetCer
 		resp.CertificateInfo = append(resp.CertificateInfo, &gnoicert.CertificateInfo{CertificateId: id, Certificate: &gnoicert.Certificate{Type: gnoicert.CertificateType_CT_X509, Certificate: c}})
 	}
 	return resp, nil
+}
+
+// RevokeCertificates removes listed ids from the device and records every id asked for.
+func (f *fakeGNOIDevice) RevokeCertificates(ctx context.Context, req *gnoicert.RevokeCertificatesRequest) (*gnoicert.RevokeCertificatesResponse, error) {
+	if err := f.auth(ctx); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.revokes = append(f.revokes, req.GetCertificateId()...)
+	resp := &gnoicert.RevokeCertificatesResponse{}
+	for _, id := range req.GetCertificateId() {
+		if _, ok := f.installed[id]; ok {
+			delete(f.installed, id)
+			resp.RevokedCertificateId = append(resp.RevokedCertificateId, id)
+		}
+	}
+	return resp, nil
+}
+
+// revoked returns the ids RevokeCertificates was called with.
+func (f *fakeGNOIDevice) revoked() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.revokes...)
 }
 
 func (f *fakeGNOIDevice) CanGenerateCSR(ctx context.Context, req *gnoicert.CanGenerateCSRRequest) (*gnoicert.CanGenerateCSRResponse, error) {
