@@ -113,9 +113,9 @@
   <div class="empty">Not refreshed yet.</div>
   {{else}}
   <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Green: more than 30 days left, orange: under 30 days, red: expired.</p>
-  {{if $v.Served}}<p>Served on the gRPC port: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
+  {{if $v.Served}}<p style="overflow-wrap:anywhere">Served on the gRPC port: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
   {{if $v.Snapshot}}
-  <table>
+  <table class="certs">
     <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th></tr></thead>
     <tbody>
     {{range $v.Snapshot}}{{template "device_cert_row" .}}{{end}}
@@ -130,7 +130,7 @@
 <div class="panel">
   <h3>Pushed certificates</h3>
   {{if $v.Pushes}}
-  <table>
+  <table class="certs">
     <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th></tr></thead>
     <tbody>
     {{range $v.Pushes}}{{template "device_cert_row" .}}{{end}}

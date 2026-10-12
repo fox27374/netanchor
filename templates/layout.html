@@ -65,7 +65,10 @@
   .kv th { width:200px; vertical-align:top; color:var(--muted); font-weight:500; text-transform:none; letter-spacing:0; font-size:14px; }
   .kv td, .kv th { padding:8px 12px; border-bottom:1px solid var(--line); text-align:left; }
   .kv td.wrap { font-family: ui-monospace, Menlo, monospace; font-size:12px; word-break:break-all; }
-  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:var(--pill-bg); color:var(--muted); margin-right:6px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:var(--pill-bg); color:var(--muted); margin-right:6px; white-space:nowrap; }
+  table.certs { table-layout:fixed; }
+  table.certs td { overflow-wrap:anywhere; }
+  table.certs th:nth-child(1) { width:20%; } table.certs th:nth-child(2) { width:40%; } table.certs th:nth-child(3) { width:27%; } table.certs th:nth-child(4) { width:13%; }
   .pill.lock { background:var(--lock-bg); color:var(--lock-fg); }
   .pill.warn { background:var(--warn-bg); color:var(--warn-fg); }
   .pill.bad { background:var(--bad-bg); color:var(--bad-fg); }

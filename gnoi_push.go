@@ -477,7 +477,7 @@ func gnoiWaitReady(ctx context.Context, conn *grpc.ClientConn) error {
 		case connectivity.Ready:
 			return nil
 		case connectivity.TransientFailure, connectivity.Shutdown:
-			return fmt.Errorf("connection failed (%s): check the address, the TLS trust choice and that gRPC is enabled", state)
+			return fmt.Errorf("connection failed (%s): check the address, the pinned fingerprint and that gRPC is enabled", state)
 		}
 		if !conn.WaitForStateChange(waitCtx, state) {
 			return fmt.Errorf("no connection within %s", gnoiConnectTimeout)
