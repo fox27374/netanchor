@@ -40,7 +40,7 @@
           <td class="mono">{{.Address}}</td>
           <td>{{.Site}}</td>
           <td>{{.Tags}}</td>
-          <td>{{if eq .Verify "ca"}}NetAnchor CA{{else if eq .Verify "fingerprint"}}Pinned fingerprint{{else}}Unverified{{end}}</td>
+          <td>{{if .Pinned}}Pinned fingerprint{{else}}No fingerprint pinned{{end}}</td>
           <td>{{if .Stored}}stored{{else}}asked below{{end}}</td>
         </tr>
       {{end}}
@@ -64,8 +64,7 @@
   {{end}}
 
   <div class="panel">
-    <label><input type="checkbox" name="unverified_ack" value="on"> A selected device is unverified: I accept that its password can be read by anyone on the path.</label>
-    <label style="margin-top:12px"><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
+    <label><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
     <div style="margin-top:16px"><button class="btn" type="submit">Push certificate to selected devices</button></div>
     <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure, and no revoke is attempted.</p>
   </div>

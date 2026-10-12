@@ -39,23 +39,17 @@ type deviceCheckResult struct {
 // sudiSubject carries "PID:<model> SN:<serial>" in the subject serialNumber.
 var sudiSubject = regexp.MustCompile(`PID:([^\s,]+)\s+SN:([^\s,]+)`)
 
-// gnoiInspect connects to the device with the given verification and credentials,
+// gnoiInspect connects to the device pinned to its fingerprint with the given credentials,
 // lists its certificates and, when served is set, reads the certificate the gRPC
 // port presents. It never changes the device.
 func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, served bool, op string) (deviceReport, []gnoiStep, error) {
 	var rep deviceReport
 	run := &gnoiRun{device: dev.Name, op: op}
-	req := gnoiPushRequest{Target: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)), Verify: dev.Verify, Fingerprint: dev.Pin}
-	var roots *x509.CertPool
-	if dev.Verify == gnoiVerifyCA {
-		chainPEM, err := st.IssuerChainPEM(dev.CAID)
-		if err != nil {
-			return rep, run.steps, run.failed("connect", err)
-		}
-		roots = x509.NewCertPool()
-		roots.AppendCertsFromPEM(chainPEM)
+	if normalizeFingerprint(dev.Pin) == "" {
+		return rep, run.steps, run.failed("connect", errNoPin)
 	}
-	conn, err := gnoiDial(ctx, allow, req.Target, gnoiTLSConfig(req, roots, nil))
+	req := gnoiPushRequest{Target: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)), Fingerprint: dev.Pin}
+	conn, err := gnoiDial(ctx, allow, req.Target, gnoiTLSConfig(req, nil))
 	if err != nil {
 		return rep, run.steps, run.failed("connect", err)
 	}

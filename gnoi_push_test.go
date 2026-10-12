@@ -51,8 +51,8 @@ func startFakeGNOI(t *testing.T, dev *fakeGNOIDevice, caCert *x509.Certificate, 
 	return lis.Addr().String(), der
 }
 
-// testDevice is an unsaved device on target, verified against the test root.
-func testDevice(t *testing.T, target, name string) Device {
+// testDevice is an unsaved device on target, pinned to pin.
+func testDevice(t *testing.T, target, name, pin string) Device {
 	t.Helper()
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
@@ -62,7 +62,7 @@ func testDevice(t *testing.T, target, name string) Device {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Device{Name: name, ManagementIP: host, Port: p, Platform: "IOS-XE", Verify: gnoiVerifyCA, CAID: caRoot}
+	return Device{Name: name, ManagementIP: host, Port: p, Platform: "IOS-XE", Pin: pin}
 }
 
 // testDefinition saves the definition the push tests use.
@@ -97,14 +97,17 @@ func pushAll(t *testing.T, e *gnoiTestEnv, def CertDefinition, tpl CertTemplate,
 func TestPushDefinitionContinuesAfterFailure(t *testing.T) {
 	e := newGNOITestEnv(t, &fakeGNOIDevice{})
 	good1, good2, bad := &fakeGNOIDevice{}, &fakeGNOIDevice{}, &fakeGNOIDevice{loadMode: "error"}
-	badTarget, _ := startFakeGNOI(t, bad, e.caCert, e.caKey)
-	goodTarget, _ := startFakeGNOI(t, good2, e.caCert, e.caKey)
-	good1Target, _ := startFakeGNOI(t, good1, e.caCert, e.caKey)
+	badTarget, badDER := startFakeGNOI(t, bad, e.caCert, e.caKey)
+	goodTarget, good2DER := startFakeGNOI(t, good2, e.caCert, e.caKey)
+	good1Target, good1DER := startFakeGNOI(t, good1, e.caCert, e.caKey)
 	def, tpl := testDefinition(t, e.store)
 
 	var devs []Device
-	for i, target := range []string{good1Target, badTarget, goodTarget} {
-		devs = append(devs, saveTestDevice(t, e.store, testDevice(t, target, "switch"+strconv.Itoa(i))))
+	for i, c := range []struct {
+		target string
+		der    []byte
+	}{{good1Target, good1DER}, {badTarget, badDER}, {goodTarget, good2DER}} {
+		devs = append(devs, saveTestDevice(t, e.store, testDevice(t, c.target, "switch"+strconv.Itoa(i), sha256Of(c.der))))
 	}
 	results := pushAll(t, e, def, tpl, devs...)
 	want := []string{"ok", "failed", "ok"}
@@ -122,7 +125,7 @@ func TestPushSkipsDeviceWithExistingCertID(t *testing.T) {
 	dev := &fakeGNOIDevice{existing: []string{"netanchor-switch"}}
 	e := newGNOITestEnv(t, dev)
 	def, tpl := testDefinition(t, e.store)
-	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch"))
+	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch", e.fp))
 
 	results := pushAll(t, e, def, tpl, d)
 	if results[0].Status != "skipped" || !strings.Contains(results[0].Outcome, "renewal comes with Rotate") {
@@ -141,9 +144,7 @@ func TestPushKeepsPinWhenDeviceDoesNotRebind(t *testing.T) {
 	gnoiRebindWait = 10 * time.Millisecond
 	e := newGNOITestEnv(t, &fakeGNOIDevice{})
 	def, tpl := testDefinition(t, e.store)
-	d := testDevice(t, e.target, "switch")
-	d.Verify, d.Pin = gnoiVerifyFingerprint, e.fp
-	d = saveTestDevice(t, e.store, d)
+	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch", e.fp))
 
 	results := pushAll(t, e, def, tpl, d)
 	if results[0].Status != "ok" || !strings.Contains(results[0].Outcome, "pin kept") || !strings.Contains(results[0].Outcome, "Certificates refreshed") {
@@ -162,9 +163,7 @@ func TestPushRepinsFingerprintDeviceAfterInstall(t *testing.T) {
 	dev := &fakeGNOIDevice{rebind: true}
 	e := newGNOITestEnv(t, dev)
 	def, tpl := testDefinition(t, e.store)
-	d := testDevice(t, e.target, "switch")
-	d.Verify, d.Pin = gnoiVerifyFingerprint, e.fp
-	d = saveTestDevice(t, e.store, d)
+	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch", e.fp))
 
 	results := pushAll(t, e, def, tpl, d)
 	if results[0].Status != "ok" {
@@ -192,7 +191,7 @@ func TestPushReportsUnverifiedStatus(t *testing.T) {
 
 	e := newGNOITestEnv(t, &fakeGNOIDevice{loadMode: "silent"})
 	def, tpl := testDefinition(t, e.store)
-	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch"))
+	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch", e.fp))
 	results := pushAll(t, e, def, tpl, d)
 	if results[0].Status != "unverified" {
 		t.Fatalf("status %q (%s), want unverified", results[0].Status, results[0].Outcome)
@@ -207,7 +206,7 @@ func TestPushDeviceCertificateSANsAndSubject(t *testing.T) {
 	if err := e.store.SaveDefinition(&def); err != nil {
 		t.Fatal(err)
 	}
-	d := testDevice(t, e.target, "switch")
+	d := testDevice(t, e.target, "switch", e.fp)
 	d.FQDN, d.ManagementIP = "switch.example.net", "127.0.0.1"
 	d = saveTestDevice(t, e.store, d)
 
@@ -240,7 +239,7 @@ func TestPushPageNeverEchoesSecretsAndShowsPushOnDevice(t *testing.T) {
 	srv := NewServer(e.store, auth)
 	srv.gnoiAllow = e.allow
 	def, _ := testDefinition(t, e.store)
-	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch"))
+	d := saveTestDevice(t, e.store, testDevice(t, e.target, "switch", e.fp))
 
 	var logs bytes.Buffer
 	prev := log.Writer()
@@ -288,35 +287,6 @@ func TestPushPageNeverEchoesSecretsAndShowsPushOnDevice(t *testing.T) {
 	devPage := deviceGet(srv, "/devices/"+d.ID)
 	if devPage.Code != http.StatusOK || !strings.Contains(devPage.Body.String(), "netanchor-switch") {
 		t.Fatalf("device page lacks the push (status %d)", devPage.Code)
-	}
-}
-
-func TestPushPageRequiresUnverifiedAcknowledgement(t *testing.T) {
-	e := newGNOITestEnv(t, &fakeGNOIDevice{})
-	auth, err := NewAuth(e.store, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := NewServer(e.store, auth)
-	srv.gnoiAllow = e.allow
-	def, _ := testDefinition(t, e.store)
-	d := testDevice(t, e.target, "switch")
-	d.Verify = gnoiVerifyUnverified
-	d = saveTestDevice(t, e.store, d)
-
-	form := url.Values{"definition": {def.ID}, "device": {d.ID}, "username": {testDevUser}, "password": {testDevPass}, "rebind_ack": {"on"}}
-	req := httptest.NewRequest(http.MethodPost, "/push", nil)
-	req.Header.Set("Origin", "http://"+req.Host)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	form.Set("csrf", srv.backupToken(req))
-	req.Body = io.NopCloser(strings.NewReader(form.Encode()))
-	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "unverified connections") {
-		t.Fatal("missing unverified acknowledgement not reported")
-	}
-	if recs := certRecords(t, e.store); len(recs) != 0 {
-		t.Fatal("push ran without the acknowledgement")
 	}
 }
 

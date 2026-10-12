@@ -49,12 +49,9 @@ var (
 	gnoiVerifyInterval = 2 * time.Second
 )
 
-// Server verification modes for the device's gRPC certificate.
-const (
-	gnoiVerifyCA          = "ca"          // device cert must chain to the selected NetAnchor CA
-	gnoiVerifyFingerprint = "fingerprint" // device cert must match a SHA-256 fingerprint the admin confirmed
-	gnoiVerifyUnverified  = "unverified"  // no server check: credentials can be intercepted
-)
+// errNoPin means the device has no confirmed fingerprint. Nothing is dialed then:
+// the device server is never trusted without a pin.
+var errNoPin = errors.New("no fingerprint pinned: open Edit device, fetch the fingerprint and save")
 
 // errGNOIUnverified means the certificate was sent to the device but the verify
 // step never saw it. It is not a failed push.
@@ -68,10 +65,8 @@ type gnoiPushRequest struct {
 	Target       string // host:port of the device gRPC server
 	Username     string
 	Password     string
-	Verify       string
 	CAID         string // NetAnchor CA that issues the certificate
-	TrustCAID    string // NetAnchor CA the device server certificate must chain to (verify=ca)
-	Fingerprint  string // pinned server SHA-256 (verify=fingerprint)
+	Fingerprint  string // pinned server SHA-256 of the device gRPC certificate
 	CAPassphrase string
 	Template     CertTemplate
 	CommonName   string
@@ -139,15 +134,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	if err != nil {
 		return nil, nil, err
 	}
-	roots := x509.NewCertPool()
-	if req.Verify == gnoiVerifyCA {
-		trustPEM, err := st.IssuerChainPEM(req.TrustCAID)
-		if err != nil {
-			return nil, nil, err
-		}
-		roots.AppendCertsFromPEM(trustPEM)
-	}
-	tlsCfg := gnoiTLSConfig(req, roots, nil)
+	tlsCfg := gnoiTLSConfig(req, nil)
 
 	conn, err := gnoiDial(ctx, allow, req.Target, tlsCfg)
 	if err != nil {
@@ -232,7 +219,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		return nil, nil, run.failed("install", err)
 	}
 
-	verifyCfg := gnoiTLSConfig(req, roots, der)
+	verifyCfg := gnoiTLSConfig(req, der)
 	deadline := time.Now().Add(gnoiVerifyWindow)
 	attempts := 0
 	for {
@@ -271,15 +258,8 @@ func validateGNOIRequest(req gnoiPushRequest) error {
 	if err := validateIssuePolicy(req.Template, req.CAID, req.ValidDays, algoRSA2048, req.CommonName, req.DNSNames, req.IPs, nil, nil); err != nil {
 		return err
 	}
-	switch req.Verify {
-	case gnoiVerifyCA:
-	case gnoiVerifyFingerprint:
-		if normalizeFingerprint(req.Fingerprint) == "" {
-			return errors.New("fetch and confirm the device fingerprint first")
-		}
-	case gnoiVerifyUnverified:
-	default:
-		return errors.New("choose how to verify the device")
+	if normalizeFingerprint(req.Fingerprint) == "" {
+		return errNoPin
 	}
 	return nil
 }
@@ -374,28 +354,21 @@ func gnoiSeenOnDevice(ctx context.Context, allow []*net.IPNet, req gnoiPushReque
 	return false, nil
 }
 
-// gnoiTLSConfig builds the server check for a push. newDER is the certificate
-// NetAnchor just issued; in fingerprint mode it is also accepted during verify,
-// because the device may rebind its server to it.
-func gnoiTLSConfig(req gnoiPushRequest, roots *x509.CertPool, newDER []byte) *tls.Config {
-	switch req.Verify {
-	case gnoiVerifyCA:
-		return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	case gnoiVerifyFingerprint:
-		want := normalizeFingerprint(req.Fingerprint)
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12, VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
-			if len(raw) == 0 {
-				return errors.New("device sent no certificate")
-			}
-			sum := sha256.Sum256(raw[0])
-			if hex.EncodeToString(sum[:]) == want || (newDER != nil && bytes.Equal(raw[0], newDER)) {
-				return nil
-			}
-			return errors.New("device certificate does not match the confirmed fingerprint")
-		}}
-	default:
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // unverified: the form warns the admin
-	}
+// gnoiTLSConfig builds the server check for a push: the device certificate must
+// match the pinned fingerprint. newDER is the certificate NetAnchor just issued;
+// it is also accepted during verify, because the device may rebind its server to it.
+func gnoiTLSConfig(req gnoiPushRequest, newDER []byte) *tls.Config {
+	want := normalizeFingerprint(req.Fingerprint)
+	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12, VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+		if len(raw) == 0 {
+			return errors.New("device sent no certificate")
+		}
+		sum := sha256.Sum256(raw[0])
+		if hex.EncodeToString(sum[:]) == want || (newDER != nil && bytes.Equal(raw[0], newDER)) {
+			return nil
+		}
+		return errors.New("device certificate does not match the confirmed fingerprint")
+	}}
 }
 
 // gnoiResolve checks every address the host resolves to against the allowlist

@@ -24,13 +24,11 @@ type deviceForm struct {
 	Name, FQDN, ManagementIP, Port  string
 	Platform, Site, Tags, Notes     string
 	Model, Serial                   string
-	Verify, CAID                    string
 	Fingerprint                     string // value in the form
 	ProbedTarget, ProbedFingerprint string // from the last probe; a new pin must match them
 	Username                        string
-	UnverifiedAck, RemoveCreds      bool
+	RemoveCreds                     bool
 	Stored                          bool
-	CAs                             []caOptionData
 	CSRF                            string
 	Info, ProbeError                string             // probe outcome, shown in the verification panel
 	Check                           *deviceCheckResult // add-time connection test, shown above Save
@@ -131,7 +129,7 @@ func (s *Server) handleDeviceNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "administrator required", http.StatusForbidden)
 		return
 	}
-	s.renderDeviceForm(w, r, deviceForm{Port: strconv.Itoa(deviceDefaultPort), Platform: devicePlatformIOSXE, Verify: gnoiVerifyFingerprint}, "")
+	s.renderDeviceForm(w, r, deviceForm{Port: strconv.Itoa(deviceDefaultPort), Platform: devicePlatformIOSXE}, "")
 }
 
 func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +149,7 @@ func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
 	f := deviceForm{
 		ID: dev.ID, Name: dev.Name, FQDN: dev.FQDN, ManagementIP: dev.ManagementIP, Port: strconv.Itoa(dev.Port),
 		Platform: dev.Platform, Site: dev.Site, Tags: strings.Join(dev.Tags, ", "), Notes: dev.Notes,
-		Model: dev.Model, Serial: dev.Serial, Verify: dev.Verify, CAID: dev.CAID, Fingerprint: dev.Pin,
+		Model: dev.Model, Serial: dev.Serial, Fingerprint: dev.Pin,
 	}
 	var errMsg string
 	if dev.Credentials != nil {
@@ -168,7 +166,6 @@ func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fillDeviceForm(f *deviceForm, r *http.Request) error {
 	f.Editing = f.ID != ""
 	f.CSRF = s.backupToken(r)
-	f.CAs = s.getIssueCAs()
 	if f.Editing {
 		dev, ok, err := s.store.GetDevice(f.ID)
 		if err != nil {
@@ -206,10 +203,10 @@ func deviceFormFromPost(r *http.Request) deviceForm {
 		Port: strings.TrimSpace(p.Get("port")), Platform: p.Get("platform"),
 		Site: strings.TrimSpace(p.Get("site")), Tags: p.Get("tags"), Notes: p.Get("notes"),
 		Model: strings.TrimSpace(p.Get("model")), Serial: strings.TrimSpace(p.Get("serial")),
-		Verify: p.Get("verify"), CAID: p.Get("ca"), Fingerprint: strings.TrimSpace(p.Get("fingerprint")),
+		Fingerprint:  strings.TrimSpace(p.Get("fingerprint")),
 		ProbedTarget: p.Get("probed_target"), ProbedFingerprint: p.Get("probed_fingerprint"),
-		Username:      strings.TrimSpace(p.Get("username")),
-		UnverifiedAck: p.Get("unverified_ack") == "on", RemoveCreds: p.Get("remove_credentials") == "on",
+		Username:    strings.TrimSpace(p.Get("username")),
+		RemoveCreds: p.Get("remove_credentials") == "on",
 	}
 }
 
@@ -353,33 +350,19 @@ func (s *Server) deviceFromForm(r *http.Request, f deviceForm) (Device, error) {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
 
 	oldPin, oldAddr := dev.Pin, dev.PinAddress
-	dev.Verify, dev.CAID, dev.Pin, dev.PinAddress = f.Verify, "", "", ""
-	switch f.Verify {
-	case gnoiVerifyCA:
-		if !s.store.ValidCAID(f.CAID) {
-			return dev, errors.New("select a valid NetAnchor CA")
-		}
-		dev.CAID = f.CAID
-	case gnoiVerifyUnverified:
-		if !f.UnverifiedAck {
-			return dev, errors.New("confirm that unverified connections can expose the device credentials")
-		}
-	case gnoiVerifyFingerprint:
-		fp := normalizeFingerprint(f.Fingerprint)
-		if fp == "" {
-			return dev, errors.New("fetch and confirm the device fingerprint first")
-		}
-		switch {
-		case f.ID != "" && oldAddr == addr && normalizeFingerprint(oldPin) == fp:
-			// unchanged pin for an unchanged address: keep the stored values
-			dev.Pin, dev.PinAddress = oldPin, oldAddr
-		case f.ProbedTarget == addr && normalizeFingerprint(f.ProbedFingerprint) == fp:
-			dev.Pin, dev.PinAddress = f.Fingerprint, addr
-		default:
-			return dev, errors.New("fetch and confirm the device fingerprint for this address first")
-		}
+	dev.Pin, dev.PinAddress = "", ""
+	fp := normalizeFingerprint(f.Fingerprint)
+	if fp == "" {
+		return dev, errors.New("fetch and confirm the device fingerprint first")
+	}
+	switch {
+	case f.ID != "" && oldAddr == addr && normalizeFingerprint(oldPin) == fp:
+		// unchanged pin for an unchanged address: keep the stored values
+		dev.Pin, dev.PinAddress = oldPin, oldAddr
+	case f.ProbedTarget == addr && normalizeFingerprint(f.ProbedFingerprint) == fp:
+		dev.Pin, dev.PinAddress = f.Fingerprint, addr
 	default:
-		return dev, errors.New("choose how to verify the device")
+		return dev, errors.New("fetch and confirm the device fingerprint for this address first")
 	}
 
 	if err := s.deviceCredentials(&dev, f, r.PostForm.Get("password")); err != nil {

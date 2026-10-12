@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/x509/pkix"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,14 +20,10 @@ func deviceAddEnv(t *testing.T, dev *fakeGNOIDevice) (*gnoiTestEnv, *Server) {
 	return env, srv
 }
 
-// deviceAddForm is an add form aimed at the fake device, with unverified TLS so no pin is needed.
+// deviceAddForm is an add form aimed at the fake device, pinned to its certificate.
 func deviceAddForm(t *testing.T, env *gnoiTestEnv, name string) url.Values {
 	t.Helper()
-	host, port, err := net.SplitHostPort(env.target)
-	backupCheck(t, err)
-	f := deviceForm1(name)
-	f.Set("management_ip", host)
-	f.Set("port", port)
+	f := deviceForm1(name, env)
 	f.Set("username", testDevUser)
 	f.Set("password", testDevPass)
 	return f
@@ -121,7 +116,7 @@ func TestDeviceAddRequiresCredentials(t *testing.T) {
 func TestDeviceEditDoesNotRunTest(t *testing.T) {
 	env, srv := deviceAddEnv(t, &fakeGNOIDevice{})
 	d := deviceForEnv(t, env, true)
-	edit := deviceForm1("renamed")
+	edit := deviceForm1("renamed", env)
 	edit.Set("id", d.ID)
 	edit.Set("management_ip", d.ManagementIP)
 	edit.Set("username", testDevUser)

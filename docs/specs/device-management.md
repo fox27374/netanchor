@@ -39,9 +39,10 @@ certificates to one or many devices over gNOI without touching the device CLI.
   startup; it is never replaced. Push asks for credentials when a device has none.
   Passwords are never rendered back, logged, or included in plaintext anywhere.
 - Server verification: probe the device's gRPC certificate on create, admin confirms
-  the SHA-256 fingerprint, it is pinned. Alternatives: trust a NetAnchor CA, or
-  explicit unverified. After a successful push the pin is updated to the certificate
-  NetAnchor just installed.
+  the SHA-256 fingerprint, it is pinned. This is the only mode: there is no CA trust and
+  no unverified connection. A device without a pin (stored by an older release with a
+  removed mode) connects nowhere until its fingerprint is fetched and saved. After a
+  successful push the pin is updated to the certificate NetAnchor just installed.
 - "Test connection": connects with stored credentials and verification, calls
   `GetCertificates`, fills model and serial from the Cisco SUDI certificate
   (subject serialNumber `PID:<model> SN:<serial>`).

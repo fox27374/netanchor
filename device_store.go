@@ -37,9 +37,7 @@ type Device struct {
 	Notes        string          `json:"notes,omitempty"`
 	Model        string          `json:"model,omitempty"`
 	Serial       string          `json:"serial,omitempty"`
-	Verify       string          `json:"verify"`                // gnoiVerifyCA, gnoiVerifyFingerprint or gnoiVerifyUnverified
-	CAID         string          `json:"ca_id,omitempty"`       // trusted NetAnchor CA when Verify is ca
-	Pin          string          `json:"pin,omitempty"`         // SHA-256 fingerprint of the device server certificate
+	Pin          string          `json:"pin,omitempty"`         // SHA-256 fingerprint of the device server certificate; empty until confirmed
 	PinAddress   string          `json:"pin_address,omitempty"` // host:port the pin was confirmed for
 	Credentials  []byte          `json:"credentials,omitempty"` // nonce || AES-256-GCM(JSON deviceCreds)
 	Snapshot     *DeviceSnapshot `json:"snapshot,omitempty"`    // last "Refresh certificates" result

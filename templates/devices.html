@@ -15,7 +15,7 @@
         <td class="mono">{{.ManagementIP}}:{{.Port}}</td>
         <td>{{.Platform}}</td>
         <td>{{.Site}}</td>
-        <td>{{if eq .Verify "ca"}}NetAnchor CA{{else if eq .Verify "fingerprint"}}Pinned fingerprint{{else}}Unverified{{end}}</td>
+        <td>{{if .Pin}}Pinned fingerprint{{else}}No fingerprint pinned{{end}}</td>
         <td>{{if .Credentials}}stored{{else}}none{{end}}</td>
       </tr>
     {{end}}

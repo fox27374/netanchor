@@ -44,10 +44,16 @@ func deviceGet(srv *Server, path string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func deviceForm1(name string) url.Values {
+// deviceForm1 is a valid fingerprint-pinned form aimed at the fake device. The
+// fetched fingerprint is posted as probed for the same address, so the pin rule passes.
+func deviceForm1(name string, env *gnoiTestEnv) url.Values {
+	host, port, err := net.SplitHostPort(env.target)
+	if err != nil {
+		panic(err)
+	}
 	return url.Values{
-		"name": {name}, "management_ip": {"192.0.2.10"}, "port": {"57400"}, "platform": {"IOS-XE"},
-		"verify": {gnoiVerifyUnverified}, "unverified_ack": {"on"},
+		"name": {name}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"},
+		"fingerprint": {env.fp}, "probed_target": {env.target}, "probed_fingerprint": {env.fp},
 	}
 }
 
@@ -76,7 +82,7 @@ func TestDeviceCRUDAndNameUniqueness(t *testing.T) {
 		t.Fatal("list does not show the device address")
 	}
 
-	edit := deviceForm1("sw1")
+	edit := deviceForm1("sw1", env)
 	edit.Set("id", id)
 	edit.Set("site", "lab-east")
 	if rec := devicePost(srv, "/devices/save", edit); rec.Code != http.StatusSeeOther {
@@ -130,7 +136,7 @@ func TestDeviceCredentialsEncryptedAtRest(t *testing.T) {
 
 	// Blank username and password on edit keep the stored credentials.
 	before := append([]byte(nil), dev.Credentials...)
-	edit := deviceForm1("sw2")
+	edit := deviceForm1("sw2", env)
 	edit.Set("id", id)
 	if rec := devicePost(srv, "/devices/save", edit); rec.Code != http.StatusSeeOther {
 		t.Fatalf("edit: status %d: %s", rec.Code, rec.Body.String())
@@ -155,7 +161,7 @@ func TestDeviceCredentialsNeverLogged(t *testing.T) {
 		t.Fatalf("create: status %d: %s", rec.Code, rec.Body.String())
 	}
 	id := strings.TrimPrefix(rec.Header().Get("Location"), "/devices/")
-	edit := deviceForm1("sw6")
+	edit := deviceForm1("sw6", env)
 	edit.Set("id", id)
 	edit.Set("username", testDevUser)
 	edit.Set("password", "another-"+testDevPass)
@@ -217,7 +223,7 @@ func TestDevicePinRules(t *testing.T) {
 	const fp = "AA:BB:CC:DD"
 	base := url.Values{
 		"name": {"sw4"}, "management_ip": {"192.0.2.20"}, "port": {"57400"}, "platform": {"IOS-XE"},
-		"verify": {gnoiVerifyFingerprint}, "fingerprint": {fp},
+		"fingerprint": {fp},
 	}
 	parse := func(v url.Values) deviceForm {
 		r.PostForm = v
@@ -278,7 +284,7 @@ func TestDeviceRolesAndCSRF(t *testing.T) {
 		t.Fatalf("viewer GET /devices/new: status %d, want 403", rec.Code)
 	}
 	for _, path := range []string{"/devices/save", "/devices/probe"} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(deviceForm1("x").Encode()))
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(url.Values{"name": {"x"}}.Encode()))
 		req.Header.Set("Cookie", cookie)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
@@ -289,7 +295,7 @@ func TestDeviceRolesAndCSRF(t *testing.T) {
 	}
 
 	// Without a CSRF token the admin-side POST is refused even with a valid origin.
-	bad := httptest.NewRequest(http.MethodPost, "/devices/save", strings.NewReader(deviceForm1("sw5").Encode()))
+	bad := httptest.NewRequest(http.MethodPost, "/devices/save", strings.NewReader(url.Values{"name": {"sw5"}}.Encode()))
 	bad.Header.Set("Origin", "http://"+bad.Host)
 	bad.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
@@ -321,7 +327,7 @@ func TestDeviceProbeRespectsAllowlist(t *testing.T) {
 	_, srv := deviceTestStore(t)
 	host, port, err := net.SplitHostPort(e.target)
 	backupCheck(t, err)
-	form := url.Values{"name": {"sw6"}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"}, "verify": {gnoiVerifyFingerprint}}
+	form := url.Values{"name": {"sw6"}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"}}
 
 	srv.gnoiAllow = nil
 	if rec := devicePost(srv, "/devices/probe", form); strings.Contains(rec.Body.String(), "Fingerprint fetched") || !strings.Contains(rec.Body.String(), "NETANCHOR_GNOI_ALLOW") {

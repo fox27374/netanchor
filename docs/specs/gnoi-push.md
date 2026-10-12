@@ -25,8 +25,8 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 - Phase 1 is `Install` only: an existing cert_id is refused with a clear message.
   IOS-XE only (NX-OS documented as untested). Auth is user/password only; mTLS later.
 - Form: host:port; auth (user/password; credentials used once, never
-  stored); server verification (trust selected NetAnchor CA, or confirm fingerprint
-  on first use; explicit "unverified" checkbox warns that credentials are exposed);
+  stored); server verification (the pinned SHA-256 fingerprint only; a device without a
+  pin is refused before any connection);
   CA + profile; CN + SANs; Country, State, Organization (required by IOS-XE for the
   CSR); cert_id (default sanitised CN); key size fixed to RSA 2048 (device offers RSA
   only), checked against profile policy.

@@ -275,9 +275,9 @@ outbound gRPC connections; it opens no new listener.
   are ignored. The chain is sent with `LoadCertificate`. No private key exists in
   NetAnchor.
 - Country, state and organization are required; IOS-XE refuses CSR generation without them.
-- The device server is verified by trusting the selected NetAnchor CA, by a
-  fingerprint you fetch and confirm first, or not at all (unverified mode warns that
-  the password can be intercepted).
+- The device server is verified by its SHA-256 fingerprint only: you fetch it, confirm it,
+  and NetAnchor connects only when the certificate matches. There is no CA trust and no
+  unverified mode.
 - An existing certificate id is refused. Only installs are supported: no rotate,
   revoke, CA bundle load or key import.
 - **Installing a certificate can rebind the switch's gNMI/gNOI server to it.** The page
@@ -307,8 +307,9 @@ platform, site, tags, notes). Admins create and edit them; all users can view th
   sensitive. Credentials are never shown or logged, and passwords are never rendered back.
 - Server verification: the device's gRPC certificate fingerprint is fetched, the
   admin confirms it, and it is pinned to the address. Changing the address or port
-  needs a new fetch. The other options are trusting a NetAnchor CA or unverified
-  (with an explicit acknowledgement).
+  needs a new fetch. A device without a pin (for example one saved by an older release
+  with the removed CA or unverified mode) cannot connect until you open Edit device,
+  fetch the fingerprint and save.
 - Fetching a fingerprint connects to the device only for the TLS handshake and sends no credentials.
 
 ## Run in a container (Podman)
