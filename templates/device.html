@@ -91,6 +91,7 @@
     <input type="hidden" name="csrf" value="{{$v.CSRF}}">
     <a class="btn secondary" href="/devices/{{$d.ID}}/edit">Edit device</a>
     <button class="btn secondary" type="submit">Test connection</button>
+    <button class="btn" style="background:var(--err)" type="submit" name="confirm_delete" value="on" formaction="/devices/{{$d.ID}}/delete" onclick="return confirm({{printf "Delete %s and its stored credentials? Certificates on the switch are not changed." $d.Name}})">Delete device</button>
   </form>
   {{if not $v.Stored}}<p class="muted" style="font-size:12px">No credentials are stored. Add them with Edit device to test or refresh.</p>{{end}}
   {{if and $v.Check (not $v.Check.Refresh)}}{{template "device_check" $v.Check}}{{end}}
@@ -142,17 +143,6 @@
   {{end}}
 </div>
 
-{{if .IsAdmin}}
-<div class="panel">
-  <h3>Delete device</h3>
-  <p class="muted">Removes the device record and its stored credentials. Certificates already pushed to the device are not changed.</p>
-  <form method="post" action="/devices/{{$d.ID}}/delete">
-    <input type="hidden" name="csrf" value="{{$v.CSRF}}">
-    <label><input type="checkbox" name="confirm_delete" value="on"> I understand this removes the device and its stored credentials.</label>
-    <button class="btn" type="submit">Delete device</button>
-  </form>
-</div>
-{{end}}
 {{end}}
 {{end}}
 
