@@ -128,13 +128,35 @@ func deviceExpiryClass(notAfter, now time.Time) string {
 	case notAfter.Sub(now) < deviceExpiryWarn:
 		return "warn"
 	}
-	return ""
+	return "lock"
 }
 
-// deviceCertRow is one snapshot line with its highlight class.
+// timeLeft is the remaining validity: days under a year, else years with one decimal.
+func timeLeft(notAfter, now time.Time) string {
+	if notAfter.IsZero() {
+		return ""
+	}
+	d := notAfter.Sub(now)
+	days := int(d.Hours() / 24)
+	switch {
+	case d <= 0:
+		return "expired"
+	case days == 1:
+		return "1 day left"
+	case days < 365:
+		return fmt.Sprintf("%d days left", days)
+	}
+	return fmt.Sprintf("%.1f years left", d.Hours()/24/365.25)
+}
+
+// deviceCertRow is one certificate line with its time left and highlight class.
 type deviceCertRow struct {
 	DeviceCert
-	Class string
+	Class, Left string
+}
+
+func newDeviceCertRow(c DeviceCert, now time.Time) deviceCertRow {
+	return deviceCertRow{DeviceCert: c, Class: deviceExpiryClass(c.NotAfter, now), Left: timeLeft(c.NotAfter, now)}
 }
 
 // deviceSnapshotView turns a stored snapshot into rows for the device page.
@@ -143,10 +165,11 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 		return nil, nil
 	}
 	for _, c := range snap.Certs {
-		rows = append(rows, deviceCertRow{DeviceCert: c, Class: deviceExpiryClass(c.NotAfter, now)})
+		rows = append(rows, newDeviceCertRow(c, now))
 	}
 	if snap.Served != nil {
-		served = &deviceCertRow{DeviceCert: *snap.Served, Class: deviceExpiryClass(snap.Served.NotAfter, now)}
+		row := newDeviceCertRow(*snap.Served, now)
+		served = &row
 	}
 	return rows, served
 }

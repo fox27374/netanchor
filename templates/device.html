@@ -112,20 +112,13 @@
   {{if $v.Taken.IsZero}}
   <div class="empty">Not refreshed yet.</div>
   {{else}}
-  <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Certificates expiring within 30 days are highlighted.</p>
-  {{if $v.Served}}<p>Served on the gRPC port: <span class="{{if $v.Served.Class}}pill {{$v.Served.Class}}{{end}}">{{$v.Served.Subject}}</span> expires {{$v.Served.NotAfter.Format "2006-01-02"}}</p>{{end}}
+  <p class="muted">Snapshot taken {{$v.Taken.Format "2006-01-02 15:04 MST"}}. Green: more than 30 days left, orange: under 30 days, red: expired.</p>
+  {{if $v.Served}}<p>Served on the gRPC port: {{$v.Served.Subject}} <span class="pill {{$v.Served.Class}}">{{$v.Served.Left}}</span></p>{{end}}
   {{if $v.Snapshot}}
   <table>
-    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Expires</th></tr></thead>
+    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th></tr></thead>
     <tbody>
-    {{range $v.Snapshot}}
-      <tr>
-        <td class="mono">{{.CertID}}</td>
-        <td class="wrap">{{.Subject}}</td>
-        <td class="wrap">{{.Issuer}}</td>
-        <td>{{if .Class}}<span class="pill {{.Class}}">{{if eq .Class "bad"}}expired {{end}}{{.NotAfter.Format "2006-01-02"}}</span>{{else}}{{.NotAfter.Format "2006-01-02"}}{{end}}</td>
-      </tr>
-    {{end}}
+    {{range $v.Snapshot}}{{template "device_cert_row" .}}{{end}}
     </tbody>
   </table>
   {{else}}
@@ -138,17 +131,9 @@
   <h3>Pushed certificates</h3>
   {{if $v.Pushes}}
   <table>
-    <thead><tr><th>Time</th><th>Certificate id</th><th>Serial</th><th>By</th><th>Outcome</th></tr></thead>
+    <thead><tr><th>Certificate id</th><th>Subject</th><th>Issuer</th><th>Time left</th></tr></thead>
     <tbody>
-    {{range $v.Pushes}}
-      <tr>
-        <td>{{.Time.Format "2006-01-02 15:04 MST"}}</td>
-        <td class="mono">{{.CertID}}</td>
-        <td class="mono">{{.Serial}}</td>
-        <td>{{.Admin}}</td>
-        <td>{{.Outcome}}</td>
-      </tr>
-    {{end}}
+    {{range $v.Pushes}}{{template "device_cert_row" .}}{{end}}
     </tbody>
   </table>
   {{else}}
@@ -178,4 +163,13 @@
     <tbody>{{range .Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
   </table>
   {{end}}
+{{end}}
+
+{{define "device_cert_row"}}
+      <tr>
+        <td class="mono">{{.CertID}}</td>
+        <td class="wrap">{{.Subject}}</td>
+        <td class="wrap">{{.Issuer}}</td>
+        <td>{{if .Left}}<span class="pill {{.Class}}">{{.Left}}</span>{{end}}</td>
+      </tr>
 {{end}}

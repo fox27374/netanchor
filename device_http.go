@@ -43,31 +43,41 @@ type deviceDetailPage struct {
 	Served   *deviceCertRow
 	Taken    time.Time
 	Check    *deviceCheckResult
-	Pushes   []devicePushRow
+	Pushes   []deviceCertRow
 }
 
 // devicePushRow is one certificate push to a device, read from the certificate records.
-type devicePushRow struct {
-	Time                           time.Time
-	CertID, Serial, Admin, Outcome string
-}
-
-// devicePushes lists the pushes whose target is this device's gRPC address, newest first.
-func (s *Server) devicePushes(dev Device) ([]devicePushRow, error) {
+// devicePushes lists the certificates pushed to this device's gRPC address, newest first.
+func (s *Server) devicePushes(dev Device) ([]deviceCertRow, error) {
 	recs, err := s.store.Records()
 	if err != nil {
 		return nil, err
 	}
 	target := net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port))
-	var rows []devicePushRow
+	type pushed struct {
+		at  time.Time
+		row deviceCertRow
+	}
+	var list []pushed
+	now := time.Now()
 	for _, rec := range recs {
 		for _, p := range rec.Pushes {
-			if p.Target == target {
-				rows = append(rows, devicePushRow{Time: p.Time, CertID: p.CertID, Serial: rec.Serial, Admin: p.Admin, Outcome: p.Outcome})
+			if p.Target != target {
+				continue
 			}
+			certPEM, _ := s.store.LoadCertPEM(rec.Serial)
+			c := parseDeviceCert(p.CertID, certPEM)
+			if c.Subject == "" { // certificate file unreadable: fall back to the record
+				c.Subject, c.NotAfter = "CN="+rec.CommonName, rec.NotAfter
+			}
+			list = append(list, pushed{p.Time, newDeviceCertRow(c, now)})
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Time.After(rows[j].Time) })
+	sort.Slice(list, func(i, j int) bool { return list[i].at.After(list[j].at) })
+	rows := make([]deviceCertRow, len(list))
+	for i, p := range list {
+		rows[i] = p.row
+	}
 	return rows, nil
 }
 

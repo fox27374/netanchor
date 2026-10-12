@@ -193,11 +193,26 @@ func TestDeviceExpiryClass(t *testing.T) {
 		{"", time.Time{}},
 		{"bad", now.Add(-time.Second)},
 		{"warn", now.Add(10 * 24 * time.Hour)},
-		{"", now.Add(90 * 24 * time.Hour)},
+		{"lock", now.Add(90 * 24 * time.Hour)},
 	}
 	for _, c := range cases {
 		if got := deviceExpiryClass(c.when, now); got != c.want {
 			t.Errorf("deviceExpiryClass(%v) = %q, want %q", c.when, got, c.want)
+		}
+	}
+}
+
+func TestTimeLeft(t *testing.T) {
+	now := time.Now()
+	for want, when := range map[string]time.Time{
+		"":               {},
+		"expired":        now.Add(-time.Hour),
+		"1 day left":     now.Add(36 * time.Hour),
+		"10 days left":   now.Add(10*24*time.Hour + time.Hour),
+		"2.0 years left": now.Add(2 * 365 * 24 * time.Hour),
+	} {
+		if got := timeLeft(when, now); got != want {
+			t.Errorf("timeLeft(%v) = %q, want %q", when, got, want)
 		}
 	}
 }
