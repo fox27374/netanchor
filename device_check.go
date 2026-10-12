@@ -49,6 +49,20 @@ func isCiscoSUDI(id string) bool {
 	return strings.HasPrefix(id, "CISCO_IDEVID")
 }
 
+// catalystCenterIssuer is the CA Cisco Catalyst Center signs its device certificates
+// with. NetAnchor never revokes them: Catalyst Center manages the device with them.
+const catalystCenterIssuer = "sdn-network-infra-ca"
+
+// isCatalystCenterDN reports whether the readable DN has CN=sdn-network-infra-ca.
+func isCatalystCenterDN(dn string) bool {
+	for _, part := range strings.Split(dn, ",") {
+		if strings.TrimSpace(part) == "CN="+catalystCenterIssuer {
+			return true
+		}
+	}
+	return false
+}
+
 // gnoiInspect connects to the device pinned to its fingerprint with the given credentials,
 // lists its certificates and, when served is set, reads the certificate the gRPC
 // port presents. It never changes the device.
@@ -191,6 +205,7 @@ type deviceCertRow struct {
 	Class, Left string
 	GRPC        bool // the certificate the gRPC port presents
 	SUDI        bool // Cisco factory identity; never revoked
+	DNAC        bool // issued by Catalyst Center; never revoked
 }
 
 func newDeviceCertRow(c DeviceCert, now time.Time) deviceCertRow {
@@ -207,6 +222,7 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 	for _, c := range snap.Certs {
 		row := newDeviceCertRow(c, now)
 		row.SUDI = isCiscoSUDI(c.CertID)
+		row.DNAC = isCatalystCenterDN(row.Issuer)
 		if snap.Served != nil && c.Fingerprint != "" && c.Fingerprint == snap.Served.Fingerprint {
 			row.GRPC, matched = true, true
 		}
@@ -221,7 +237,7 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 	return rows, served
 }
 
-func (r deviceCertRow) protected() bool { return r.GRPC || r.SUDI }
+func (r deviceCertRow) protected() bool { return r.GRPC || r.SUDI || r.DNAC }
 
 // deviceCheckCreds returns the stored credentials.
 func (s *Server) deviceCheckCreds(dev Device) (deviceCreds, error) {
@@ -301,6 +317,7 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 
 var (
 	errRevokeSUDI   = errors.New("Cisco SUDI certificates are the device's factory identity and are never revoked")
+	errRevokeDNAC   = errors.New("Cisco Catalyst Center issued this certificate (issuer " + catalystCenterIssuer + ") and manages the device with it; it is never revoked")
 	errRevokeServed = errors.New("the gRPC port presents this certificate; revoking it stops the gRPC server until it is fixed on the device CLI")
 )
 
@@ -359,12 +376,14 @@ func gnoiRevoke(ctx context.Context, allow []*net.IPNet, dev Device, creds devic
 	switch {
 	case block == nil:
 		return run.steps, run.failed("check", errors.New("cannot read the certificate, so it cannot be checked against the gRPC port"))
+	case issuedByCatalystCenter(block.Bytes):
+		return run.steps, run.failed("check", errRevokeDNAC)
 	case peer == nil:
 		return run.steps, run.failed("check", errors.New("cannot read the certificate the gRPC port presents"))
 	case bytes.Equal(block.Bytes, peer):
 		return run.steps, run.failed("check", errRevokeServed)
 	}
-	run.ok("check", "not the gRPC certificate and not a SUDI certificate")
+	run.ok("check", "not the gRPC certificate, not a SUDI and not a Catalyst Center certificate")
 
 	resp, err := cli.RevokeCertificates(authCtx, &gnoicert.RevokeCertificatesRequest{CertificateId: []string{certID}})
 	if err != nil {
@@ -445,4 +464,11 @@ func (s *Server) handleDeviceRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	dev, _, _ = s.store.GetDevice(dev.ID)
 	s.renderDeviceDetail(w, r, dev, res, "")
+}
+
+// issuedByCatalystCenter reports whether the DER certificate's issuer CN is Catalyst Center's CA.
+// An unparsable certificate counts as not issued by it; the other checks still apply.
+func issuedByCatalystCenter(der []byte) bool {
+	c, err := x509.ParseCertificate(der)
+	return err == nil && c.Issuer.CommonName == catalystCenterIssuer
 }

@@ -549,3 +549,31 @@ func TestDeviceRevokeRejectsMissingCertID(t *testing.T) {
 		t.Fatalf("empty cert id not refused: %s", rec.Body.String())
 	}
 }
+
+func TestDeviceRevokeRefusesCatalystCenterCertificate(t *testing.T) {
+	now := time.Now()
+	// Self-signed, so the issuer CN is Catalyst Center's CA.
+	dnac := testDeviceCertPEM(t, pkix.Name{CommonName: catalystCenterIssuer}, now.Add(-time.Hour), now.Add(48*time.Hour))
+	dev := &fakeGNOIDevice{installed: map[string][]byte{"sdn-network-infra-iwan": dnac}}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+	rec := devicePost(srv, "/devices/"+d.ID+"/certificates/revoke", revokeForm("sdn-network-infra-iwan", true))
+	if !strings.Contains(rec.Body.String(), "Failed at check") || !strings.Contains(rec.Body.String(), "Catalyst Center issued this certificate") {
+		t.Fatalf("Catalyst Center certificate not refused: %s", rec.Body.String())
+	}
+	if got := dev.revoked(); len(got) != 0 {
+		t.Fatalf("RevokeCertificates called: %v", got)
+	}
+
+	snap := &DeviceSnapshot{Taken: now, Certs: []DeviceCert{{CertID: "sdn-network-infra-iwan", Issuer: "CN=sdn-network-infra-ca"}, {CertID: "netanchor-a", Issuer: "CN=Lab"}}}
+	rows, _ := deviceSnapshotView(snap, now)
+	if rows[0].CertID != "netanchor-a" || !rows[1].DNAC {
+		t.Fatalf("Catalyst Center row not protected and last: %+v", rows)
+	}
+}

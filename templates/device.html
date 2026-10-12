@@ -124,6 +124,7 @@
         {{if $.IsAdmin}}<td>
           {{if .GRPC}}<span class="muted" title="Protected: the gRPC server uses it">&#128274; gRPC server</span>
           {{else if .SUDI}}<span class="muted" title="Protected: Cisco SUDI">&#128274; Cisco SUDI</span>
+          {{else if .DNAC}}<span class="muted" title="Protected: issued by Cisco Catalyst Center">&#128274; Catalyst Center</span>
           {{else if .CertID}}
           <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates">
             <input type="hidden" name="csrf" value="{{$v.CSRF}}">
