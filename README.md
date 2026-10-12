@@ -311,6 +311,11 @@ platform, site, tags, notes). Admins create and edit them; all users can view th
   with the removed CA or unverified mode) cannot connect until you open Edit device,
   fetch the fingerprint and save.
 - Fetching a fingerprint connects to the device only for the TLS handshake and sends no credentials.
+- Revoke on the device: the certificates table on the device page has a Delete control
+  for each certificate that is not protected. It removes the certificate from the switch
+  (`RevokeCertificates`) after a required checkbox, then refreshes the snapshot. NetAnchor's
+  issued-certificate records are not changed. The gRPC-served certificate and Cisco
+  SUDI/IDEVID certificates are refused, on the device page and on the server.
 
 ## Run in a container (Podman)
 

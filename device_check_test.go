@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
@@ -314,5 +315,234 @@ func TestLegacyVerifyDeviceGetsPinOnEdit(t *testing.T) {
 	}
 	if d, _, _ := env.store.GetDevice(saved.ID); d.Pin != env.fp {
 		t.Fatalf("pin = %q, want %q", d.Pin, env.fp)
+	}
+}
+
+// selfSignedRSAPEM returns a self-signed RSA certificate PEM and its key, for a fake gRPC server.
+func selfSignedRSAPEM(t *testing.T, cn string) ([]byte, *rsa.PrivateKey, []byte) {
+	t.Helper()
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), k, der
+}
+
+// revokeForm is the revoke POST body; devicePost adds the CSRF token.
+func revokeForm(certID string, confirm bool) url.Values {
+	f := url.Values{"cert_id": {certID}}
+	if confirm {
+		f.Set("confirm", "on")
+	}
+	return f
+}
+
+func TestDeviceRevokeRemovesListedCertificateAndRefreshes(t *testing.T) {
+	now := time.Now()
+	expired := testDeviceCertPEM(t, pkix.Name{CommonName: "old.example.net"}, now.Add(-48*time.Hour), now.Add(-time.Hour))
+	dev := &fakeGNOIDevice{installed: map[string][]byte{"netanchor-old": expired}}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+	rec := devicePost(srv, "/devices/"+d.ID+"/certificates/revoke", revokeForm("netanchor-old", true))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke status %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := dev.revoked(); len(got) != 1 || got[0] != "netanchor-old" {
+		t.Fatalf("RevokeCertificates ids = %v, want [netanchor-old]", got)
+	}
+	if !strings.Contains(rec.Body.String(), "Removed netanchor-old from the switch.") || !strings.Contains(rec.Body.String(), "Certificates refreshed: 0 listed.") {
+		t.Fatalf("result not shown: %s", rec.Body.String())
+	}
+	got, _, _ := env.store.GetDevice(d.ID)
+	if got.Snapshot == nil || len(got.Snapshot.Certs) != 0 {
+		t.Fatalf("snapshot not refreshed after revoke: %+v", got.Snapshot)
+	}
+	if strings.Contains(logs.String(), testDevPass) {
+		t.Fatal("device password appeared in logs")
+	}
+}
+
+func TestDeviceRevokeRefusesGRPCCertificate(t *testing.T) {
+	grpcPEM, k, der := selfSignedRSAPEM(t, "switch-grpc")
+	dev := &fakeGNOIDevice{installed: map[string][]byte{"netanchor-grpc": grpcPEM}, lastCert: grpcPEM, rebind: true, devKey: k}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	// The port now presents the rebound certificate, so pin that one.
+	if err := env.store.UpdateDevice(d.ID, func(x *Device) { x.Pin = sha256Of(der) }); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+	rec := devicePost(srv, "/devices/"+d.ID+"/certificates/revoke", revokeForm("netanchor-grpc", true))
+	if !strings.Contains(rec.Body.String(), "Failed at check") || !strings.Contains(rec.Body.String(), "the gRPC port presents this certificate") {
+		t.Fatalf("gRPC certificate not refused for the gRPC reason: %s", rec.Body.String())
+	}
+	if got := dev.revoked(); len(got) != 0 {
+		t.Fatalf("RevokeCertificates called for the gRPC certificate: %v", got)
+	}
+	if _, ok := dev.installed["netanchor-grpc"]; !ok {
+		t.Fatal("gRPC certificate removed from the device")
+	}
+}
+
+func TestDeviceRevokeRefusesSUDIUnknownAndUnconfirmed(t *testing.T) {
+	now := time.Now()
+	sudi := testDeviceCertPEM(t, pkix.Name{CommonName: "sudi"}, now.Add(-time.Hour), now.Add(time.Hour))
+	normal := testDeviceCertPEM(t, pkix.Name{CommonName: "normal"}, now.Add(-time.Hour), now.Add(time.Hour))
+	dev := &fakeGNOIDevice{sudi: sudi, installed: map[string][]byte{"netanchor-a": normal}}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+
+	cases := []struct {
+		id      string
+		confirm bool
+		want    string
+	}{
+		{"CISCO_IDEVID_SUDI", true, "Failed at check"},
+		{"nope", true, "Failed at check"},
+		{"netanchor-a", false, "tick the confirmation box"},
+	}
+	for _, c := range cases {
+		rec := devicePost(srv, "/devices/"+d.ID+"/certificates/revoke", revokeForm(c.id, c.confirm))
+		if !strings.Contains(rec.Body.String(), c.want) {
+			t.Fatalf("%s confirm=%v: want %q in %s", c.id, c.confirm, c.want, rec.Body.String())
+		}
+	}
+	if got := dev.revoked(); len(got) != 0 {
+		t.Fatalf("RevokeCertificates called: %v", got)
+	}
+}
+
+func TestDeviceRevokeRejectsMissingCSRF(t *testing.T) {
+	dev := &fakeGNOIDevice{installed: map[string][]byte{"netanchor-a": testDeviceCertPEM(t, pkix.Name{CommonName: "a"}, time.Now(), time.Now().Add(time.Hour))}}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+	req := httptest.NewRequest(http.MethodPost, "/devices/"+d.ID+"/certificates/revoke", strings.NewReader(url.Values{"cert_id": {"netanchor-a"}, "confirm": {"on"}}.Encode()))
+	req.Header.Set("Origin", "http://"+req.Host)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", rec.Code)
+	}
+	if got := dev.revoked(); len(got) != 0 {
+		t.Fatalf("revoke sent without CSRF: %v", got)
+	}
+}
+
+func TestDeviceRevokeViewerForbidden(t *testing.T) {
+	dev := &fakeGNOIDevice{installed: map[string][]byte{"netanchor-a": testDeviceCertPEM(t, pkix.Name{CommonName: "a"}, time.Now(), time.Now().Add(time.Hour))}}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	auth, err := NewAuth(env.store, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupCheck(t, auth.AddUser("viewer", "viewer password", RoleViewer))
+	viewer := httptest.NewRecorder()
+	auth.issueSession(viewer, "viewer")
+	cookie := viewer.Result().Cookies()[0].String()
+	srv := NewServer(env.store, auth)
+	srv.gnoiAllow = env.allow
+	routes := auth.Middleware(srv.Routes())
+
+	req := httptest.NewRequest(http.MethodPost, "/devices/"+d.ID+"/certificates/revoke", strings.NewReader(revokeForm("netanchor-a", true).Encode()))
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Origin", "http://"+req.Host)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	routes.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer status %d, want 403", rec.Code)
+	}
+	if got := dev.revoked(); len(got) != 0 {
+		t.Fatalf("viewer revoked: %v", got)
+	}
+}
+
+func TestDevicePageDeleteControlOnlyForDeletableRows(t *testing.T) {
+	now := time.Now()
+	grpcPEM := testDeviceCertPEM(t, pkix.Name{CommonName: "grpc"}, now.Add(-time.Hour), now.Add(time.Hour))
+	grpcDER, _ := pem.Decode(grpcPEM)
+	dev := &fakeGNOIDevice{}
+	env := newGNOITestEnv(t, dev)
+	d := deviceForEnv(t, env, true)
+	grpcFP := sha256Of(grpcDER.Bytes)
+	snap := &DeviceSnapshot{Taken: now, Served: &DeviceCert{Fingerprint: grpcFP}, Certs: []DeviceCert{
+		{CertID: "netanchor-a", Fingerprint: "AA"},
+		{CertID: "CISCO_IDEVID_SUDI", Fingerprint: "BB"},
+		{CertID: "netanchor-grpc", Fingerprint: grpcFP},
+	}}
+	if err := env.store.UpdateDevice(d.ID, func(x *Device) { x.Snapshot = snap }); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(env.store, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(env.store, auth)
+	body := deviceGet(srv, "/devices/"+d.ID).Body.String()
+
+	action := `action="/devices/` + d.ID + `/certificates/revoke`
+	if n := strings.Count(body, action); n != 1 {
+		t.Fatalf("delete forms = %d, want 1 (only netanchor-a)", n)
+	}
+	if !strings.Contains(body, `name="cert_id" value="netanchor-a"`) {
+		t.Fatal("deletable row has no delete form")
+	}
+	if !strings.Contains(body, "protected: gRPC server") || !strings.Contains(body, "protected: Cisco SUDI") {
+		t.Fatal("protected rows not marked")
+	}
+}
+
+func TestDeviceRevokeRejectsMissingCertID(t *testing.T) {
+	st, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(st, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(st, auth)
+	d := Device{Name: "sw", ManagementIP: "192.0.2.10", Port: 57400, Platform: devicePlatformIOSXE, Pin: "AA"}
+	if err := st.SaveDevice(&d); err != nil {
+		t.Fatal(err)
+	}
+	rec := devicePost(srv, "/devices/"+d.ID+"/certificates/revoke", revokeForm("", true))
+	if !strings.Contains(rec.Body.String(), "no certificate was chosen") {
+		t.Fatalf("empty cert id not refused: %s", rec.Body.String())
 	}
 }
