@@ -16,15 +16,11 @@ import (
 
 const testDeviceKeyBytes = "0123456789abcdef0123456789abcdef" // 32 bytes
 
-func deviceTestStore(t *testing.T, withKey bool) (*Store, *Server) {
+func deviceTestStore(t *testing.T) (*Store, *Server) {
 	t.Helper()
 	st, err := OpenStore(t.TempDir())
 	backupCheck(t, err)
-	if withKey {
-		key := filepath.Join(t.TempDir(), "device.key")
-		backupCheck(t, os.WriteFile(key, []byte(testDeviceKeyBytes), 0o600))
-		backupCheck(t, st.LoadDeviceKey(key))
-	}
+	backupCheck(t, st.loadOrCreateDeviceKey())
 	auth, err := NewAuth(st, false, false)
 	backupCheck(t, err)
 	return st, NewServer(st, auth)
@@ -48,17 +44,24 @@ func deviceGet(srv *Server, path string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func deviceForm1(name string) url.Values {
+// deviceForm1 is a valid fingerprint-pinned form aimed at the fake device. The
+// fetched fingerprint is posted as probed for the same address, so the pin rule passes.
+func deviceForm1(name string, env *gnoiTestEnv) url.Values {
+	host, port, err := net.SplitHostPort(env.target)
+	if err != nil {
+		panic(err)
+	}
 	return url.Values{
-		"name": {name}, "management_ip": {"192.0.2.10"}, "port": {"57400"}, "platform": {"IOS-XE"},
-		"verify": {gnoiVerifyUnverified}, "unverified_ack": {"on"},
+		"name": {name}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"},
+		"fingerprint": {env.fp}, "probed_target": {env.target}, "probed_fingerprint": {env.fp},
 	}
 }
 
 func TestDeviceCRUDAndNameUniqueness(t *testing.T) {
-	st, srv := deviceTestStore(t, false)
+	env, srv := deviceAddEnv(t, &fakeGNOIDevice{})
+	st := env.store
 
-	rec := devicePost(srv, "/devices/save", deviceForm1("sw1"))
+	rec := devicePost(srv, "/devices/save", deviceAddForm(t, env, "sw1"))
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("create: status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -67,7 +70,7 @@ func TestDeviceCRUDAndNameUniqueness(t *testing.T) {
 		t.Fatal("create: no redirect to the device")
 	}
 
-	dup := devicePost(srv, "/devices/save", deviceForm1("sw1"))
+	dup := devicePost(srv, "/devices/save", deviceAddForm(t, env, "sw1"))
 	if dup.Code != http.StatusOK || !strings.Contains(dup.Body.String(), "already exists") {
 		t.Fatalf("duplicate name not refused: status %d", dup.Code)
 	}
@@ -75,11 +78,11 @@ func TestDeviceCRUDAndNameUniqueness(t *testing.T) {
 	if rec := deviceGet(srv, "/devices/"+id); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "sw1") {
 		t.Fatalf("details: status %d", rec.Code)
 	}
-	if rec := deviceGet(srv, "/devices"); !strings.Contains(rec.Body.String(), "192.0.2.10:57400") {
+	if rec := deviceGet(srv, "/devices"); !strings.Contains(rec.Body.String(), env.target) {
 		t.Fatal("list does not show the device address")
 	}
 
-	edit := deviceForm1("sw1")
+	edit := deviceForm1("sw1", env)
 	edit.Set("id", id)
 	edit.Set("site", "lab-east")
 	if rec := devicePost(srv, "/devices/save", edit); rec.Code != http.StatusSeeOther {
@@ -101,8 +104,9 @@ func TestDeviceCRUDAndNameUniqueness(t *testing.T) {
 }
 
 func TestDeviceCredentialsEncryptedAtRest(t *testing.T) {
-	st, srv := deviceTestStore(t, true)
-	form := deviceForm1("sw2")
+	env, srv := deviceAddEnv(t, &fakeGNOIDevice{})
+	st := env.store
+	form := deviceAddForm(t, env, "sw2")
 	form.Set("username", testDevUser)
 	form.Set("password", testDevPass)
 	rec := devicePost(srv, "/devices/save", form)
@@ -132,7 +136,7 @@ func TestDeviceCredentialsEncryptedAtRest(t *testing.T) {
 
 	// Blank username and password on edit keep the stored credentials.
 	before := append([]byte(nil), dev.Credentials...)
-	edit := deviceForm1("sw2")
+	edit := deviceForm1("sw2", env)
 	edit.Set("id", id)
 	if rec := devicePost(srv, "/devices/save", edit); rec.Code != http.StatusSeeOther {
 		t.Fatalf("edit: status %d: %s", rec.Code, rec.Body.String())
@@ -142,31 +146,14 @@ func TestDeviceCredentialsEncryptedAtRest(t *testing.T) {
 	}
 }
 
-func TestDeviceWithoutKeyStoresNothing(t *testing.T) {
-	st, srv := deviceTestStore(t, false)
-	form := deviceForm1("sw3")
-	form.Set("username", testDevUser)
-	form.Set("password", testDevPass)
-	rec := devicePost(srv, "/devices/save", form)
-	if !strings.Contains(rec.Body.String(), "NETANCHOR_DEVICE_KEY_FILE") {
-		t.Fatalf("no explanation without a key file: status %d", rec.Code)
-	}
-	if devs, _ := st.ListDevices(); len(devs) != 0 {
-		t.Fatalf("device stored although credentials could not be: %d", len(devs))
-	}
-	if strings.Contains(deviceGet(srv, "/devices/new").Body.String(), testDevPass) {
-		t.Fatal("password rendered")
-	}
-}
-
 func TestDeviceCredentialsNeverLogged(t *testing.T) {
 	var buf bytes.Buffer
 	prev := log.Writer()
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(prev) })
 
-	_, srv := deviceTestStore(t, true)
-	form := deviceForm1("sw6")
+	env, srv := deviceAddEnv(t, &fakeGNOIDevice{})
+	form := deviceAddForm(t, env, "sw6")
 	form.Set("username", testDevUser)
 	form.Set("password", testDevPass)
 	rec := devicePost(srv, "/devices/save", form)
@@ -174,7 +161,7 @@ func TestDeviceCredentialsNeverLogged(t *testing.T) {
 		t.Fatalf("create: status %d: %s", rec.Code, rec.Body.String())
 	}
 	id := strings.TrimPrefix(rec.Header().Get("Location"), "/devices/")
-	edit := deviceForm1("sw6")
+	edit := deviceForm1("sw6", env)
 	edit.Set("id", id)
 	edit.Set("username", testDevUser)
 	edit.Set("password", "another-"+testDevPass)
@@ -188,29 +175,55 @@ func TestDeviceCredentialsNeverLogged(t *testing.T) {
 	}
 }
 
-func TestLoadDeviceKeyRejectsBadFiles(t *testing.T) {
-	st, err := OpenStore(t.TempDir())
+// A fresh data dir gets auth/device.key (32 bytes); a restart reuses it so the
+// stored credentials still decrypt.
+func TestDeviceKeyCreatedOnFirstStart(t *testing.T) {
+	dir := t.TempDir()
+	st, err := OpenStore(dir)
 	backupCheck(t, err)
-	if err := st.LoadDeviceKey(""); err != nil || st.CredentialsAvailable() {
-		t.Fatalf("empty path should leave credential storage off: %v", err)
+	backupCheck(t, st.loadOrCreateDeviceKey())
+	b, err := os.ReadFile(filepath.Join(dir, "auth", "device.key"))
+	backupCheck(t, err)
+	if len(b) != deviceKeySize {
+		t.Fatalf("device.key is %d bytes", len(b))
 	}
-	if err := st.LoadDeviceKey(filepath.Join(t.TempDir(), "missing.key")); err == nil || st.CredentialsAvailable() {
-		t.Fatalf("missing key file accepted: %v", err)
+	blob, err := st.sealCredentials(deviceCreds{Username: testDevUser, Password: testDevPass})
+	backupCheck(t, err)
+
+	restarted, err := OpenStore(dir)
+	backupCheck(t, err)
+	backupCheck(t, restarted.loadOrCreateDeviceKey())
+	c, err := restarted.openCredentials(blob)
+	backupCheck(t, err)
+	if c.Username != testDevUser || c.Password != testDevPass {
+		t.Fatal("credentials did not survive a restart")
 	}
-	short := filepath.Join(t.TempDir(), "short.key")
+}
+
+// A device.key of the wrong length stops startup and is never replaced.
+func TestDeviceKeyWrongLengthIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	st, err := OpenStore(dir)
+	backupCheck(t, err)
+	short := filepath.Join(dir, "auth", "device.key")
 	backupCheck(t, os.WriteFile(short, []byte(testDeviceKeyBytes[:31]), 0o600))
-	if err := st.LoadDeviceKey(short); err == nil || st.CredentialsAvailable() {
-		t.Fatalf("31-byte key file accepted: %v", err)
+	if err := st.loadOrCreateDeviceKey(); err == nil {
+		t.Fatal("31-byte device.key accepted")
+	}
+	b, err := os.ReadFile(short)
+	backupCheck(t, err)
+	if len(b) != 31 {
+		t.Fatal("malformed device.key was replaced")
 	}
 }
 
 func TestDevicePinRules(t *testing.T) {
-	st, srv := deviceTestStore(t, false)
+	st, srv := deviceTestStore(t)
 	r := httptest.NewRequest(http.MethodPost, "/devices/save", nil)
 	const fp = "AA:BB:CC:DD"
 	base := url.Values{
 		"name": {"sw4"}, "management_ip": {"192.0.2.20"}, "port": {"57400"}, "platform": {"IOS-XE"},
-		"verify": {gnoiVerifyFingerprint}, "fingerprint": {fp},
+		"fingerprint": {fp},
 	}
 	parse := func(v url.Values) deviceForm {
 		r.PostForm = v
@@ -271,7 +284,7 @@ func TestDeviceRolesAndCSRF(t *testing.T) {
 		t.Fatalf("viewer GET /devices/new: status %d, want 403", rec.Code)
 	}
 	for _, path := range []string{"/devices/save", "/devices/probe"} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(deviceForm1("x").Encode()))
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(url.Values{"name": {"x"}}.Encode()))
 		req.Header.Set("Cookie", cookie)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
@@ -282,7 +295,7 @@ func TestDeviceRolesAndCSRF(t *testing.T) {
 	}
 
 	// Without a CSRF token the admin-side POST is refused even with a valid origin.
-	bad := httptest.NewRequest(http.MethodPost, "/devices/save", strings.NewReader(deviceForm1("sw5").Encode()))
+	bad := httptest.NewRequest(http.MethodPost, "/devices/save", strings.NewReader(url.Values{"name": {"sw5"}}.Encode()))
 	bad.Header.Set("Origin", "http://"+bad.Host)
 	bad.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
@@ -311,10 +324,10 @@ func TestDeviceNavLink(t *testing.T) {
 
 func TestDeviceProbeRespectsAllowlist(t *testing.T) {
 	e := newGNOITestEnv(t, &fakeGNOIDevice{})
-	_, srv := deviceTestStore(t, false)
+	_, srv := deviceTestStore(t)
 	host, port, err := net.SplitHostPort(e.target)
 	backupCheck(t, err)
-	form := url.Values{"name": {"sw6"}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"}, "verify": {gnoiVerifyFingerprint}}
+	form := url.Values{"name": {"sw6"}, "management_ip": {host}, "port": {port}, "platform": {"IOS-XE"}}
 
 	srv.gnoiAllow = nil
 	if rec := devicePost(srv, "/devices/probe", form); strings.Contains(rec.Body.String(), "Fingerprint fetched") || !strings.Contains(rec.Body.String(), "NETANCHOR_GNOI_ALLOW") {

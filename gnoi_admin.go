@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -14,23 +15,23 @@ import (
 
 // pushPage is the data for templates/push.html.
 type pushPage struct {
-	Defs         []CertDefinition
-	Devices      []pushDeviceRow
-	Site, Tag    string
-	Definition   string // selected definition id
-	Username     string // echoed; never the password or CA passphrase
-	NeedCreds    bool   // a listed device has no stored credentials, so the form asks for them
-	KeyAvailable bool
-	Results      []devicePushResult
-	Outcome      string // summary after a push
-	Class        string // alert class for Outcome: ok, warn or err
-	CSRF         string
+	Defs       []CertDefinition
+	Devices    []pushDeviceRow
+	Definition string // selected definition id
+	Username   string // echoed; never the password or CA passphrase
+	NeedCreds  bool   // a listed device has no stored credentials, so the form asks for them
+	Results    []devicePushResult
+	Outcome    string // summary after a push
+	Class      string // alert class for Outcome: ok, warn or err
+	CSRF       string
 }
 
 // pushDeviceRow is one device in the selection list.
 type pushDeviceRow struct {
-	ID, Name, Site, Address, Verify string
-	Stored, Selected                bool
+	ID, Name, Site, Address string
+	Pinned                  bool
+	Tags                    string // comma separated, for the client-side filter
+	Stored, Selected        bool
 }
 
 // devicePushResult is one row of the results panel.
@@ -59,7 +60,6 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := pushPage{
-		Site: strings.TrimSpace(r.Form.Get("site")), Tag: strings.TrimSpace(r.Form.Get("tag")),
 		Definition: r.Form.Get("definition"), Username: strings.TrimSpace(r.Form.Get("username")),
 	}
 	if r.Method == http.MethodPost {
@@ -86,38 +86,18 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		selected[id] = true
 	}
 	for _, dev := range devs {
-		if !pushMatches(dev, page.Site, page.Tag) {
-			continue
-		}
 		page.Devices = append(page.Devices, pushDeviceRow{
 			ID: dev.ID, Name: dev.Name, Site: dev.Site, Address: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)),
-			Verify: dev.Verify, Stored: dev.Credentials != nil, Selected: selected[dev.ID],
+			Pinned: dev.Pin != "", Tags: strings.Join(dev.Tags, ", "), Stored: dev.Credentials != nil, Selected: selected[dev.ID],
 		})
 		if dev.Credentials == nil {
 			page.NeedCreds = true
 		}
 	}
 	page.Defs = defs
-	page.KeyAvailable = s.store.CredentialsAvailable()
 	page.CSRF = s.backupToken(r)
 	d.Data = page
 	s.render(w, "push", d)
-}
-
-// pushMatches applies the site and tag filters of the selection list.
-func pushMatches(dev Device, site, tag string) bool {
-	if site != "" && !strings.EqualFold(dev.Site, site) {
-		return false
-	}
-	if tag == "" {
-		return true
-	}
-	for _, t := range dev.Tags {
-		if strings.EqualFold(t, tag) {
-			return true
-		}
-	}
-	return false
 }
 
 // pushFromForm validates the posted selection and pushes the definition to each
@@ -150,9 +130,6 @@ func (s *Server) pushFromForm(w http.ResponseWriter, r *http.Request, admin stri
 		}
 		if !ok {
 			return fail("a selected device no longer exists; reload the page")
-		}
-		if dev.Verify == gnoiVerifyUnverified && r.PostForm.Get("unverified_ack") != "on" {
-			return fail("confirm that unverified connections can expose the device credentials")
 		}
 		devs = append(devs, dev)
 	}
@@ -199,7 +176,9 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	var dnsNames []string
 	var ips []net.IP
 	if dev.FQDN != "" {
-		cn = dev.FQDN
+		if def.CNSource != definitionCNName {
+			cn = dev.FQDN
+		}
 		dnsNames = append(dnsNames, dev.FQDN)
 	}
 	if ip := net.ParseIP(dev.ManagementIP); ip != nil {
@@ -214,9 +193,10 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	}
 	req := gnoiPushRequest{
 		Target: target, Username: creds.Username, Password: creds.Password,
-		Verify: dev.Verify, CAID: def.CAID, TrustCAID: dev.CAID, Fingerprint: dev.Pin, CAPassphrase: caPass,
+		CAID: def.CAID, Fingerprint: dev.Pin, CAPassphrase: caPass,
 		Template: tmpl, CommonName: cn, Country: def.Country, State: def.State, City: def.City, Organization: def.Organization, OU: def.OU,
 		DNSNames: dnsNames, IPs: ips, CertID: def.CertID, ValidDays: def.ValidDays, Admin: admin,
+		Device: dev.Name,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, gnoiPushTimeout)
@@ -237,29 +217,59 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	return res
 }
 
-// afterInstall re-pins a fingerprint device to the certificate just installed (the
-// device may have rebound its gRPC server to it), then refreshes the device snapshot.
-// It returns a note for the results panel.
+// afterInstall re-pins a fingerprint device if its gRPC server now presents the
+// certificate just installed. Not every device rebinds, so the pin follows what
+// the port actually serves. Then it refreshes the device snapshot. It returns a
+// note for the results panel.
 func afterInstall(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, der []byte, target string) string {
-	if dev.Verify == gnoiVerifyFingerprint {
+	note := ""
+	served, err := gnoiServedAfterInstall(ctx, allow, target, der)
+	switch {
+	case err != nil:
+		return "Could not read the served certificate, pin kept: " + err.Error() + "."
+	case bytes.Equal(served, der):
 		sum := sha256.Sum256(der)
 		pin := hexColons(sum[:])
 		if err := st.UpdateDevice(dev.ID, func(d *Device) { d.Pin, d.PinAddress = pin, target }); err != nil {
 			return "Could not save the new pin: " + err.Error() + "."
 		}
 		dev.Pin = pin
+		note = "The gRPC server now uses the new certificate; pin updated. "
+	default:
+		note = "The gRPC server still presents its previous certificate; pin kept. "
 	}
 	snapCtx, cancel := context.WithTimeout(ctx, gnoiPushTimeout)
 	defer cancel()
-	rep, _, err := gnoiInspect(snapCtx, st, allow, dev, creds, true)
+	rep, _, err := gnoiInspect(snapCtx, st, allow, dev, creds, true, "push")
 	if err != nil {
-		return "Certificates not refreshed: " + err.Error() + "."
+		return note + "Certificates not refreshed: " + err.Error() + "."
 	}
 	snap := &DeviceSnapshot{Taken: time.Now().UTC(), Certs: rep.Certs, Served: rep.Served}
 	if err := st.UpdateDevice(dev.ID, func(d *Device) { d.Snapshot = snap }); err != nil {
-		return "Could not save the snapshot: " + err.Error() + "."
+		return note + "Could not save the snapshot: " + err.Error() + "."
 	}
-	return "Certificates refreshed."
+	return note + "Certificates refreshed."
+}
+
+// gnoiServedAfterInstall returns the certificate the gRPC port presents, giving the
+// device a short while to rebind to newDER.
+func gnoiServedAfterInstall(ctx context.Context, allow []*net.IPNet, target string, newDER []byte) ([]byte, error) {
+	var served []byte
+	var err error
+	for i := 0; i < gnoiRebindTries; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return served, err
+			case <-time.After(gnoiRebindWait):
+			}
+		}
+		served, err = gnoiServedCert(ctx, allow, target)
+		if err == nil && bytes.Equal(served, newDER) {
+			return served, nil
+		}
+	}
+	return served, err
 }
 
 // pushSummary counts the outcomes and picks the worst alert class.

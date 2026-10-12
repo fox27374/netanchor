@@ -27,6 +27,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// gnoiRebindWait and gnoiRebindTries give a device ~9 s after install to rebind
+// its gRPC server to the new certificate before the old pin is kept. Vars for tests.
+var (
+	gnoiRebindWait  = 3 * time.Second
+	gnoiRebindTries = 4
+)
+
 // Timeouts for one push. The verify window sits inside the overall budget: the
 // push fails early only if the budget ends first.
 const (
@@ -42,12 +49,9 @@ var (
 	gnoiVerifyInterval = 2 * time.Second
 )
 
-// Server verification modes for the device's gRPC certificate.
-const (
-	gnoiVerifyCA          = "ca"          // device cert must chain to the selected NetAnchor CA
-	gnoiVerifyFingerprint = "fingerprint" // device cert must match a SHA-256 fingerprint the admin confirmed
-	gnoiVerifyUnverified  = "unverified"  // no server check: credentials can be intercepted
-)
+// errNoPin means the device has no confirmed fingerprint. Nothing is dialed then:
+// the device server is never trusted without a pin.
+var errNoPin = errors.New("no fingerprint pinned: open Edit device, fetch the fingerprint and save")
 
 // errGNOIUnverified means the certificate was sent to the device but the verify
 // step never saw it. It is not a failed push.
@@ -61,10 +65,8 @@ type gnoiPushRequest struct {
 	Target       string // host:port of the device gRPC server
 	Username     string
 	Password     string
-	Verify       string
 	CAID         string // NetAnchor CA that issues the certificate
-	TrustCAID    string // NetAnchor CA the device server certificate must chain to (verify=ca)
-	Fingerprint  string // pinned server SHA-256 (verify=fingerprint)
+	Fingerprint  string // pinned server SHA-256 of the device gRPC certificate
 	CAPassphrase string
 	Template     CertTemplate
 	CommonName   string
@@ -78,6 +80,7 @@ type gnoiPushRequest struct {
 	CertID       string
 	ValidDays    int
 	Admin        string
+	Device       string // device name, for the log only
 }
 
 // gnoiStep is one line of the step-by-step result.
@@ -93,7 +96,10 @@ type gnoiStep struct {
 // device already has the id, and any other error for a failed push. Once a serial
 // exists, the outcome is recorded on that certificate.
 func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRequest) (steps []gnoiStep, installed []byte, err error) {
-	run := &gnoiRun{}
+	run := &gnoiRun{device: req.Device, op: "push"}
+	if run.device == "" {
+		run.device = req.Target
+	}
 	var serial string
 	defer func() {
 		if serial == "" {
@@ -128,15 +134,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	if err != nil {
 		return nil, nil, err
 	}
-	roots := x509.NewCertPool()
-	if req.Verify == gnoiVerifyCA {
-		trustPEM, err := st.IssuerChainPEM(req.TrustCAID)
-		if err != nil {
-			return nil, nil, err
-		}
-		roots.AppendCertsFromPEM(trustPEM)
-	}
-	tlsCfg := gnoiTLSConfig(req, roots, nil)
+	tlsCfg := gnoiTLSConfig(req, nil)
 
 	conn, err := gnoiDial(ctx, allow, req.Target, tlsCfg)
 	if err != nil {
@@ -152,11 +150,11 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", req.Username, "password", req.Password)
 	list, err := cli.GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return nil, nil, run.failed("auth", fmt.Errorf("device rejected the request: %s", status.Convert(err).Message()))
+		return nil, nil, run.failed("auth", gnoiRejected(err))
 	}
 	for _, c := range list.GetCertificateInfo() {
 		if c.GetCertificateId() == req.CertID {
-			run.steps = append(run.steps, gnoiStep{Name: "auth", Status: "skipped", Detail: fmt.Sprintf("certificate id %q: %s", req.CertID, errGNOIExists)})
+			run.record(gnoiStep{Name: "auth", Status: "skipped", Detail: fmt.Sprintf("certificate id %q: %s", req.CertID, errGNOIExists)})
 			return nil, nil, errGNOIExists
 		}
 	}
@@ -221,7 +219,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		return nil, nil, run.failed("install", err)
 	}
 
-	verifyCfg := gnoiTLSConfig(req, roots, der)
+	verifyCfg := gnoiTLSConfig(req, der)
 	deadline := time.Now().Add(gnoiVerifyWindow)
 	attempts := 0
 	for {
@@ -238,7 +236,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 		case <-time.After(gnoiVerifyInterval):
 		}
 	}
-	run.steps = append(run.steps, gnoiStep{Name: "verify", Status: "unconfirmed", Detail: fmt.Sprintf("no answer with the certificate after %d attempts", attempts)})
+	run.record(gnoiStep{Name: "verify", Status: "unconfirmed", Detail: fmt.Sprintf("no answer with the certificate after %d attempts", attempts)})
 	return nil, nil, errGNOIUnverified
 }
 
@@ -260,15 +258,8 @@ func validateGNOIRequest(req gnoiPushRequest) error {
 	if err := validateIssuePolicy(req.Template, req.CAID, req.ValidDays, algoRSA2048, req.CommonName, req.DNSNames, req.IPs, nil, nil); err != nil {
 		return err
 	}
-	switch req.Verify {
-	case gnoiVerifyCA:
-	case gnoiVerifyFingerprint:
-		if normalizeFingerprint(req.Fingerprint) == "" {
-			return errors.New("fetch and confirm the device fingerprint first")
-		}
-	case gnoiVerifyUnverified:
-	default:
-		return errors.New("choose how to verify the device")
+	if normalizeFingerprint(req.Fingerprint) == "" {
+		return errNoPin
 	}
 	return nil
 }
@@ -363,28 +354,21 @@ func gnoiSeenOnDevice(ctx context.Context, allow []*net.IPNet, req gnoiPushReque
 	return false, nil
 }
 
-// gnoiTLSConfig builds the server check for a push. newDER is the certificate
-// NetAnchor just issued; in fingerprint mode it is also accepted during verify,
-// because the device may rebind its server to it.
-func gnoiTLSConfig(req gnoiPushRequest, roots *x509.CertPool, newDER []byte) *tls.Config {
-	switch req.Verify {
-	case gnoiVerifyCA:
-		return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	case gnoiVerifyFingerprint:
-		want := normalizeFingerprint(req.Fingerprint)
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12, VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
-			if len(raw) == 0 {
-				return errors.New("device sent no certificate")
-			}
-			sum := sha256.Sum256(raw[0])
-			if hex.EncodeToString(sum[:]) == want || (newDER != nil && bytes.Equal(raw[0], newDER)) {
-				return nil
-			}
-			return errors.New("device certificate does not match the confirmed fingerprint")
-		}}
-	default:
-		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} // unverified: the form warns the admin
-	}
+// gnoiTLSConfig builds the server check for a push: the device certificate must
+// match the pinned fingerprint. newDER is the certificate NetAnchor just issued;
+// it is also accepted during verify, because the device may rebind its server to it.
+func gnoiTLSConfig(req gnoiPushRequest, newDER []byte) *tls.Config {
+	want := normalizeFingerprint(req.Fingerprint)
+	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12, VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+		if len(raw) == 0 {
+			return errors.New("device sent no certificate")
+		}
+		sum := sha256.Sum256(raw[0])
+		if hex.EncodeToString(sum[:]) == want || (newDER != nil && bytes.Equal(raw[0], newDER)) {
+			return nil
+		}
+		return errors.New("device certificate does not match the confirmed fingerprint")
+	}}
 }
 
 // gnoiResolve checks every address the host resolves to against the allowlist
@@ -493,7 +477,7 @@ func gnoiWaitReady(ctx context.Context, conn *grpc.ClientConn) error {
 		case connectivity.Ready:
 			return nil
 		case connectivity.TransientFailure, connectivity.Shutdown:
-			return fmt.Errorf("connection failed (%s): check the address, the TLS trust choice and that gRPC is enabled", state)
+			return fmt.Errorf("connection failed (%s): check the address, the pinned fingerprint and that gRPC is enabled", state)
 		}
 		if !conn.WaitForStateChange(waitCtx, state) {
 			return fmt.Errorf("no connection within %s", gnoiConnectTimeout)
@@ -538,17 +522,24 @@ func normalizeFingerprint(s string) string {
 	return strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(strings.TrimSpace(s)))
 }
 
-// gnoiRun collects the step-by-step result.
+// gnoiRun collects the step-by-step result and logs each step. op is the
+// operation (test, add, refresh or push). Never put credentials in a detail.
 type gnoiRun struct {
-	steps []gnoiStep
+	device, op string
+	steps      []gnoiStep
+}
+
+func (r *gnoiRun) record(st gnoiStep) {
+	r.steps = append(r.steps, st)
+	log.Printf("gnoi device=%s op=%s step=%s status=%s detail=%q", r.device, r.op, st.Name, st.Status, st.Detail)
 }
 
 func (r *gnoiRun) ok(name, detail string) {
-	r.steps = append(r.steps, gnoiStep{Name: name, Status: "ok", Detail: detail})
+	r.record(gnoiStep{Name: name, Status: "ok", Detail: detail})
 }
 
 func (r *gnoiRun) failed(name string, err error) error {
-	r.steps = append(r.steps, gnoiStep{Name: name, Status: "failed", Detail: err.Error()})
+	r.record(gnoiStep{Name: name, Status: "failed", Detail: err.Error()})
 	return err
 }
 
@@ -557,4 +548,14 @@ func (r *gnoiRun) last() string {
 		return "start"
 	}
 	return r.steps[len(r.steps)-1].Name
+}
+
+// gnoiRejected describes an RPC error from the device. Unimplemented means the
+// device has no gNOI certificate service, which is a device setup problem.
+func gnoiRejected(err error) error {
+	st := status.Convert(err)
+	if st.Code() == codes.Unimplemented {
+		return errors.New("device does not support gNOI certificate management (Unimplemented); check the IOS-XE version and the gnxi configuration")
+	}
+	return fmt.Errorf("device rejected the request: %s %s", st.Code(), st.Message())
 }

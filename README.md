@@ -104,7 +104,6 @@ the admin account.
 |         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
 |         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
 |         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. `0.0.0.0/0,::/0` allows every device; narrow it to management networks where possible. Empty refuses every target |
-|         | `NETANCHOR_DEVICE_KEY_FILE` | —                | File with exactly 32 random bytes that encrypts device credentials (AES-256-GCM). Create with `head -c 32 /dev/urandom > device.key`, keep it outside the data directory. Without it no credentials are stored |
 
 ## SCEP for switch HTTPS and gNMI
 
@@ -276,9 +275,9 @@ outbound gRPC connections; it opens no new listener.
   are ignored. The chain is sent with `LoadCertificate`. No private key exists in
   NetAnchor.
 - Country, state and organization are required; IOS-XE refuses CSR generation without them.
-- The device server is verified by trusting the selected NetAnchor CA, by a
-  fingerprint you fetch and confirm first, or not at all (unverified mode warns that
-  the password can be intercepted).
+- The device server is verified by its SHA-256 fingerprint only: you fetch it, confirm it,
+  and NetAnchor connects only when the certificate matches. There is no CA trust and no
+  unverified mode.
 - An existing certificate id is refused. Only installs are supported: no rotate,
   revoke, CA bundle load or key import.
 - **Installing a certificate can rebind the switch's gNMI/gNOI server to it.** The page
@@ -301,12 +300,16 @@ outbound gRPC connections; it opens no new listener.
 Device Management → Devices keeps an inventory of network devices (name, address,
 platform, site, tags, notes). Admins create and edit them; all users can view them.
 
-- Credentials are stored only when `NETANCHOR_DEVICE_KEY_FILE` is set. They are
-  encrypted at rest and never shown or logged. Passwords are never rendered back.
+- Credentials are encrypted at rest (AES-256-GCM) with `<data>/auth/device.key`, a
+  32-byte key created automatically on first start. The key lives in the data
+  directory and is included in backups, so anyone with the data volume or a backup
+  can decrypt the stored device credentials. Treat the data directory and backups as
+  sensitive. Credentials are never shown or logged, and passwords are never rendered back.
 - Server verification: the device's gRPC certificate fingerprint is fetched, the
   admin confirms it, and it is pinned to the address. Changing the address or port
-  needs a new fetch. The other options are trusting a NetAnchor CA or unverified
-  (with an explicit acknowledgement).
+  needs a new fetch. A device without a pin (for example one saved by an older release
+  with the removed CA or unverified mode) cannot connect until you open Edit device,
+  fetch the fingerprint and save.
 - Fetching a fingerprint connects to the device only for the TLS handshake and sends no credentials.
 
 ## Run in a container (Podman)
@@ -387,7 +390,8 @@ separate DB service.
 - **Volume ownership** is handled automatically: the image creates `/data` owned
   by uid 65532, and Podman's volume "copy-up" gives a fresh named volume that
   same ownership on first use. The volume holds the CA(s), issued certs, the TLS
-  server cert, the session-signing key, and `users.json`.
+  server cert, the session-signing key, the device credential key
+  (`auth/device.key`), and `users.json`.
 - **Graceful shutdown**: the server traps `SIGTERM` (what `podman stop` sends)
   and shuts down cleanly.
 - **Health check**: the binary self-probes via `netanchor -health` (no extra tools

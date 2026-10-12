@@ -47,6 +47,8 @@ type fakeGNOIDevice struct {
 	lastCert  []byte // PEM the device received in LoadCertificate
 	lastChain int    // number of CA certificates received with it
 	devPubKey *rsa.PublicKey
+	devKey    *rsa.PrivateKey
+	rebind    bool   // serve the last installed certificate on the gRPC port, like the lab switch
 	sudi      []byte // PEM of a CISCO_IDEVID certificate listed by GetCertificates; nil = none
 }
 
@@ -123,7 +125,7 @@ func (f *fakeGNOIDevice) Install(stream grpc.BidiStreamingServer[gnoicert.Instal
 		return err
 	}
 	f.mu.Lock()
-	f.devPubKey = &key.PublicKey
+	f.devPubKey, f.devKey = &key.PublicKey, key
 	f.mu.Unlock()
 	// The device CSR carries SANs and an extension the push must ignore.
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
@@ -191,6 +193,9 @@ func newGNOITestEnv(t *testing.T, dev *fakeGNOIDevice) *gnoiTestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.loadOrCreateDeviceKey(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := CreateCA(st, CAParams{CommonName: "root", Algo: algoECP256, ValidDays: 1000}); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +217,16 @@ func newGNOITestEnv(t *testing.T, dev *fakeGNOIDevice) *gnoiTestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{*srvCert}})))
+	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		dev.mu.Lock()
+		defer dev.mu.Unlock()
+		if dev.rebind && dev.lastCert != nil {
+			if b, _ := pem.Decode(dev.lastCert); b != nil {
+				return &tls.Certificate{Certificate: [][]byte{b.Bytes}, PrivateKey: dev.devKey}, nil
+			}
+		}
+		return srvCert, nil
+	}})))
 	gnoicert.RegisterCertificateManagementServer(srv, dev)
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
@@ -235,7 +249,7 @@ func (e *gnoiTestEnv) request(t *testing.T) gnoiPushRequest {
 		t.Fatal("missing builtin profile")
 	}
 	return gnoiPushRequest{
-		Target: e.target, Username: testDevUser, Password: testDevPass, Verify: gnoiVerifyCA, CAID: caRoot, TrustCAID: caRoot,
+		Target: e.target, Username: testDevUser, Password: testDevPass, CAID: caRoot, Fingerprint: e.fp,
 		Template: tpl, CommonName: "switch.example.net", Country: "NL", State: "Zuid-Holland", Organization: "Example",
 		DNSNames: []string{"switch.example.net"}, IPs: []net.IP{net.ParseIP("192.0.2.10")},
 		CertID: "netanchor-test", ValidDays: tpl.ValidDays, Admin: "tester",
@@ -468,7 +482,7 @@ func TestGNOIAllowlist(t *testing.T) {
 	}
 }
 
-func TestGNOIFingerprintModePinsProbedCertificate(t *testing.T) {
+func TestGNOIPushPinsProbedCertificate(t *testing.T) {
 	dev := &fakeGNOIDevice{}
 	e := newGNOITestEnv(t, dev)
 	fp, err := gnoiProbe(context.Background(), e.allow, e.target)
@@ -479,13 +493,13 @@ func TestGNOIFingerprintModePinsProbedCertificate(t *testing.T) {
 		t.Fatalf("probe fingerprint %s, want %s", fp, e.fp)
 	}
 	req := e.request(t)
-	req.Verify, req.Fingerprint = gnoiVerifyFingerprint, fp
+	req.Fingerprint = fp
 	if _, _, err := gnoiPush(context.Background(), e.store, e.allow, req); err != nil {
 		t.Fatalf("push with confirmed fingerprint: %v", err)
 	}
 
 	bad := e.request(t)
-	bad.Verify, bad.Fingerprint = gnoiVerifyFingerprint, "00:11:22"
+	bad.Fingerprint = "00:11:22"
 	steps, _, err := gnoiPush(context.Background(), e.store, e.allow, bad)
 	if err == nil || len(steps) != 1 || steps[0].Name != "connect" {
 		t.Fatalf("wrong fingerprint: err=%v steps=%v, want connect failure", err, stepNames(steps))
@@ -499,8 +513,7 @@ func TestGNOIValidateRequestRules(t *testing.T) {
 		"no certid":        func(r *gnoiPushRequest) { r.CertID = "" },
 		"bad certid":       func(r *gnoiPushRequest) { r.CertID = "a/b" },
 		"no password":      func(r *gnoiPushRequest) { r.Password = "" },
-		"unpinned fp":      func(r *gnoiPushRequest) { r.Verify = gnoiVerifyFingerprint },
-		"bad verify":       func(r *gnoiPushRequest) { r.Verify = "maybe" },
+		"no pin":           func(r *gnoiPushRequest) { r.Fingerprint = "" },
 		"no SANs for TLS":  func(r *gnoiPushRequest) { r.DNSNames, r.IPs = nil, nil },
 		"profile no RSA2k": func(r *gnoiPushRequest) { r.Template.AllowedAlgos = []keyAlgo{algoECP256} },
 	}

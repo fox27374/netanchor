@@ -32,14 +32,17 @@ certificates to one or many devices over gNOI without touching the device CLI.
 ## Devices
 - Fields: name (unique), FQDN, management IP, gNOI port (default 57400), platform
   (IOS-XE, NX-OS), site, tags, notes, model, serial, credentials, server verification.
-- Credentials (username/password) stored encrypted with a key read from
-  `NETANCHOR_DEVICE_KEY_FILE` (outside the data dir, like `NETANCHOR_SCEP_SECRET_FILE`).
-  Without the file NetAnchor stores no credentials; push asks for them instead.
+- Credentials (username/password) stored encrypted (AES-256-GCM) with a 32-byte key at
+  `<data>/auth/device.key`, created automatically on first start (0600). The key sits in
+  the data dir and is included in backups, so the data dir and backups are sensitive:
+  anyone with them can decrypt the credentials. A device.key of the wrong length stops
+  startup; it is never replaced. Push asks for credentials when a device has none.
   Passwords are never rendered back, logged, or included in plaintext anywhere.
 - Server verification: probe the device's gRPC certificate on create, admin confirms
-  the SHA-256 fingerprint, it is pinned. Alternatives: trust a NetAnchor CA, or
-  explicit unverified. After a successful push the pin is updated to the certificate
-  NetAnchor just installed.
+  the SHA-256 fingerprint, it is pinned. This is the only mode: there is no CA trust and
+  no unverified connection. A device without a pin (stored by an older release with a
+  removed mode) connects nowhere until its fingerprint is fetched and saved. After a
+  successful push the pin is updated to the certificate NetAnchor just installed.
 - "Test connection": connects with stored credentials and verification, calls
   `GetCertificates`, fills model and serial from the Cisco SUDI certificate
   (subject serialNumber `PID:<model> SN:<serial>`).
@@ -77,8 +80,9 @@ certificates to one or many devices over gNOI without touching the device CLI.
 
 ## Backup and restore
 Devices, definitions, snapshots and encrypted credentials are part of the backup.
-Restoring without the matching device key file keeps devices and drops credentials,
-with a visible warning.
+The device key (`auth/device.key`) is part of the backup and is restored with it. A
+backup from an older version has no key: the restore keeps the current instance's key,
+drops credentials that do not decrypt with it, and shows a visible warning.
 
 ## Non-goals (for now)
 Key import (SSH/CLI path), `Rotate`/renewal (Phase C), NX-OS lab support, scheduled

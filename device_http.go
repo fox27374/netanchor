@@ -24,51 +24,60 @@ type deviceForm struct {
 	Name, FQDN, ManagementIP, Port  string
 	Platform, Site, Tags, Notes     string
 	Model, Serial                   string
-	Verify, CAID                    string
 	Fingerprint                     string // value in the form
 	ProbedTarget, ProbedFingerprint string // from the last probe; a new pin must match them
 	Username                        string
-	UnverifiedAck, RemoveCreds      bool
-	Stored, KeyAvailable            bool
-	CAs                             []caOptionData
+	RemoveCreds                     bool
+	Stored                          bool
 	CSRF                            string
-	Info                            string
+	Info, ProbeError                string             // probe outcome, shown in the verification panel
+	Check                           *deviceCheckResult // add-time connection test, shown above Save
+	SaveError                       string             // validation error, shown above Save
 }
 
 type deviceDetailPage struct {
-	Device       Device
-	Stored       bool
-	KeyAvailable bool
-	CSRF         string
-	Snapshot     []deviceCertRow
-	Served       *deviceCertRow
-	Taken        time.Time
-	Check        *deviceCheckResult
-	Pushes       []devicePushRow
+	Device   Device
+	Stored   bool
+	CSRF     string
+	Snapshot []deviceCertRow
+	Served   *deviceCertRow
+	Taken    time.Time
+	Check    *deviceCheckResult
+	Pushes   []deviceCertRow
 }
 
 // devicePushRow is one certificate push to a device, read from the certificate records.
-type devicePushRow struct {
-	Time                           time.Time
-	CertID, Serial, Admin, Outcome string
-}
-
-// devicePushes lists the pushes whose target is this device's gRPC address, newest first.
-func (s *Server) devicePushes(dev Device) ([]devicePushRow, error) {
+// devicePushes lists the certificates pushed to this device's gRPC address, newest first.
+func (s *Server) devicePushes(dev Device) ([]deviceCertRow, error) {
 	recs, err := s.store.Records()
 	if err != nil {
 		return nil, err
 	}
 	target := net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port))
-	var rows []devicePushRow
+	type pushed struct {
+		at  time.Time
+		row deviceCertRow
+	}
+	var list []pushed
+	now := time.Now()
 	for _, rec := range recs {
 		for _, p := range rec.Pushes {
-			if p.Target == target {
-				rows = append(rows, devicePushRow{Time: p.Time, CertID: p.CertID, Serial: rec.Serial, Admin: p.Admin, Outcome: p.Outcome})
+			if p.Target != target {
+				continue
 			}
+			certPEM, _ := s.store.LoadCertPEM(rec.Serial)
+			c := parseDeviceCert(p.CertID, certPEM)
+			if c.Subject == "" { // certificate file unreadable: fall back to the record
+				c.Subject, c.NotAfter = "CN="+rec.CommonName, rec.NotAfter
+			}
+			list = append(list, pushed{p.Time, newDeviceCertRow(c, now)})
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Time.After(rows[j].Time) })
+	sort.Slice(list, func(i, j int) bool { return list[i].at.After(list[j].at) })
+	rows := make([]deviceCertRow, len(list))
+	for i, p := range list {
+		rows[i] = p.row
+	}
 	return rows, nil
 }
 
@@ -111,7 +120,7 @@ func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev 
 	deviceHeaders(w)
 	d := s.base(r, dev.Name, "devices")
 	d.Error = errMsg
-	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, KeyAvailable: s.store.CredentialsAvailable(), CSRF: s.backupToken(r), Check: check}
+	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, CSRF: s.backupToken(r), Check: check}
 	pushes, err := s.devicePushes(dev)
 	if err != nil {
 		d.Error = err.Error()
@@ -130,7 +139,7 @@ func (s *Server) handleDeviceNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "administrator required", http.StatusForbidden)
 		return
 	}
-	s.renderDeviceForm(w, r, deviceForm{Port: strconv.Itoa(deviceDefaultPort), Platform: devicePlatformIOSXE, Verify: gnoiVerifyFingerprint}, "")
+	s.renderDeviceForm(w, r, deviceForm{Port: strconv.Itoa(deviceDefaultPort), Platform: devicePlatformIOSXE}, "")
 }
 
 func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
@@ -150,10 +159,10 @@ func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
 	f := deviceForm{
 		ID: dev.ID, Name: dev.Name, FQDN: dev.FQDN, ManagementIP: dev.ManagementIP, Port: strconv.Itoa(dev.Port),
 		Platform: dev.Platform, Site: dev.Site, Tags: strings.Join(dev.Tags, ", "), Notes: dev.Notes,
-		Model: dev.Model, Serial: dev.Serial, Verify: dev.Verify, CAID: dev.CAID, Fingerprint: dev.Pin,
+		Model: dev.Model, Serial: dev.Serial, Fingerprint: dev.Pin,
 	}
 	var errMsg string
-	if dev.Credentials != nil && s.store.CredentialsAvailable() {
+	if dev.Credentials != nil {
 		if c, err := s.store.openCredentials(dev.Credentials); err != nil {
 			errMsg = err.Error()
 		} else {
@@ -166,9 +175,7 @@ func (s *Server) handleDeviceEdit(w http.ResponseWriter, r *http.Request) {
 // fillDeviceForm adds the state every form render needs.
 func (s *Server) fillDeviceForm(f *deviceForm, r *http.Request) error {
 	f.Editing = f.ID != ""
-	f.KeyAvailable = s.store.CredentialsAvailable()
 	f.CSRF = s.backupToken(r)
-	f.CAs = s.getIssueCAs()
 	if f.Editing {
 		dev, ok, err := s.store.GetDevice(f.ID)
 		if err != nil {
@@ -192,7 +199,7 @@ func (s *Server) renderDeviceForm(w http.ResponseWriter, r *http.Request, f devi
 		title = "Edit device"
 	}
 	d := s.base(r, title, "devices")
-	d.Error = errMsg
+	f.SaveError = errMsg // shown in the Save panel, where #save-result lands
 	d.Data = f
 	s.render(w, "device", d)
 }
@@ -206,10 +213,10 @@ func deviceFormFromPost(r *http.Request) deviceForm {
 		Port: strings.TrimSpace(p.Get("port")), Platform: p.Get("platform"),
 		Site: strings.TrimSpace(p.Get("site")), Tags: p.Get("tags"), Notes: p.Get("notes"),
 		Model: strings.TrimSpace(p.Get("model")), Serial: strings.TrimSpace(p.Get("serial")),
-		Verify: p.Get("verify"), CAID: p.Get("ca"), Fingerprint: strings.TrimSpace(p.Get("fingerprint")),
+		Fingerprint:  strings.TrimSpace(p.Get("fingerprint")),
 		ProbedTarget: p.Get("probed_target"), ProbedFingerprint: p.Get("probed_fingerprint"),
-		Username:      strings.TrimSpace(p.Get("username")),
-		UnverifiedAck: p.Get("unverified_ack") == "on", RemoveCreds: p.Get("remove_credentials") == "on",
+		Username:    strings.TrimSpace(p.Get("username")),
+		RemoveCreds: p.Get("remove_credentials") == "on",
 	}
 }
 
@@ -233,7 +240,8 @@ func (s *Server) handleDeviceProbe(w http.ResponseWriter, r *http.Request) {
 	ip := net.ParseIP(f.ManagementIP)
 	port, perr := parsePort(f.Port)
 	if ip == nil || perr != nil {
-		s.renderDeviceForm(w, r, f, "enter a valid management IP and port before fetching the fingerprint")
+		f.ProbeError = "enter a valid management IP and port before fetching the fingerprint"
+		s.renderDeviceForm(w, r, f, "")
 		return
 	}
 	target := net.JoinHostPort(ip.String(), strconv.Itoa(port))
@@ -241,7 +249,8 @@ func (s *Server) handleDeviceProbe(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	fp, err := gnoiProbe(ctx, s.gnoiAllow, target)
 	if err != nil {
-		s.renderDeviceForm(w, r, f, "fingerprint fetch failed: "+err.Error())
+		f.ProbeError = "fingerprint fetch failed: " + err.Error()
+		s.renderDeviceForm(w, r, f, "")
 		return
 	}
 	f.Fingerprint, f.ProbedTarget, f.ProbedFingerprint = fp, target, fp
@@ -264,11 +273,48 @@ func (s *Server) handleDeviceSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := deviceFormFromPost(r)
+	if f.ID == "" {
+		s.addDevice(w, r, f)
+		return
+	}
 	dev, err := s.deviceFromForm(r, f)
 	if err == nil {
 		err = s.store.SaveDevice(&dev)
 	}
 	if err != nil {
+		s.renderDeviceForm(w, r, f, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/devices/"+dev.ID, http.StatusSeeOther)
+}
+
+// addDevice stores a new device only when a live check succeeds. The check also
+// lists the certificates and reads the served one, so the device is stored once,
+// with its model, serial and snapshot. On failure nothing is stored.
+func (s *Server) addDevice(w http.ResponseWriter, r *http.Request, f deviceForm) {
+	password := r.PostForm.Get("password")
+	if f.Username == "" || password == "" {
+		s.renderDeviceForm(w, r, f, "username and password are required to add a device")
+		return
+	}
+	dev, err := s.deviceFromForm(r, f)
+	if err != nil {
+		s.renderDeviceForm(w, r, f, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)
+	defer cancel()
+	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, deviceCreds{Username: f.Username, Password: password}, true, "add")
+	if err != nil {
+		f.Check = &deviceCheckResult{Steps: steps, Outcome: "Failed at " + steps[len(steps)-1].Name + ": " + err.Error(), Class: "err"}
+		s.renderDeviceForm(w, r, f, "")
+		return
+	}
+	if rep.Model != "" {
+		dev.Model, dev.Serial = rep.Model, rep.Serial
+	}
+	dev.Snapshot = &DeviceSnapshot{Taken: time.Now().UTC(), Certs: rep.Certs, Served: rep.Served}
+	if err := s.store.SaveDevice(&dev); err != nil {
 		s.renderDeviceForm(w, r, f, err.Error())
 		return
 	}
@@ -314,33 +360,19 @@ func (s *Server) deviceFromForm(r *http.Request, f deviceForm) (Device, error) {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
 
 	oldPin, oldAddr := dev.Pin, dev.PinAddress
-	dev.Verify, dev.CAID, dev.Pin, dev.PinAddress = f.Verify, "", "", ""
-	switch f.Verify {
-	case gnoiVerifyCA:
-		if !s.store.ValidCAID(f.CAID) {
-			return dev, errors.New("select a valid NetAnchor CA")
-		}
-		dev.CAID = f.CAID
-	case gnoiVerifyUnverified:
-		if !f.UnverifiedAck {
-			return dev, errors.New("confirm that unverified connections can expose the device credentials")
-		}
-	case gnoiVerifyFingerprint:
-		fp := normalizeFingerprint(f.Fingerprint)
-		if fp == "" {
-			return dev, errors.New("fetch and confirm the device fingerprint first")
-		}
-		switch {
-		case f.ID != "" && oldAddr == addr && normalizeFingerprint(oldPin) == fp:
-			// unchanged pin for an unchanged address: keep the stored values
-			dev.Pin, dev.PinAddress = oldPin, oldAddr
-		case f.ProbedTarget == addr && normalizeFingerprint(f.ProbedFingerprint) == fp:
-			dev.Pin, dev.PinAddress = f.Fingerprint, addr
-		default:
-			return dev, errors.New("fetch and confirm the device fingerprint for this address first")
-		}
+	dev.Pin, dev.PinAddress = "", ""
+	fp := normalizeFingerprint(f.Fingerprint)
+	if fp == "" {
+		return dev, errors.New("fetch and confirm the device fingerprint first")
+	}
+	switch {
+	case f.ID != "" && oldAddr == addr && normalizeFingerprint(oldPin) == fp:
+		// unchanged pin for an unchanged address: keep the stored values
+		dev.Pin, dev.PinAddress = oldPin, oldAddr
+	case f.ProbedTarget == addr && normalizeFingerprint(f.ProbedFingerprint) == fp:
+		dev.Pin, dev.PinAddress = f.Fingerprint, addr
 	default:
-		return dev, errors.New("choose how to verify the device")
+		return dev, errors.New("fetch and confirm the device fingerprint for this address first")
 	}
 
 	if err := s.deviceCredentials(&dev, f, r.PostForm.Get("password")); err != nil {
@@ -357,8 +389,6 @@ func (s *Server) deviceCredentials(dev *Device, f deviceForm, password string) e
 		dev.Credentials = nil
 	case f.Username == "" && password == "":
 		// keep existing credentials (none on create)
-	case !s.store.CredentialsAvailable():
-		return errCredentialsDisabled
 	case f.Username == "":
 		return errors.New("username is required")
 	case password == "":

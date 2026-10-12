@@ -11,15 +11,18 @@ the `.nab` download. The password is used only for this request and is not saved
 Included: root and intermediate CA certificates and private keys (existing CA
 encryption is preserved), issued certificates and keys, metadata index, custom
 certificate profiles, users/password hashes, HTTPS certificate and key, session
-key, authoritative SCEP journal including challenge/issuance history, all
+key, device credential key, authoritative SCEP journal including challenge/issuance history, all
 trash records and their certificate/key files, and devices with their last
 certificate snapshot and encrypted credentials (`devices.json`).
 
-Device credentials are encrypted with the key in `NETANCHOR_DEVICE_KEY_FILE`, which
-is **not** in the backup. Keep that key file with the backup: it is needed to
-decrypt the credentials after restore. Without it (or with a different key), the
-restore keeps the devices, drops their credentials, and the restore page lists the
-affected devices. Re-enter those credentials before pushing or testing.
+Device credentials are encrypted with the device credential key `auth/device.key`
+(created automatically on first start), which **is** in the backup. Restore brings the
+key back, so the credentials decrypt. The backup and the data directory are therefore
+sensitive: anyone who has a backup can decrypt its device credentials. A backup made
+by an older version has no key; restoring it keeps the current instance's key, so
+credentials that do not decrypt with it are dropped. The restore keeps the devices and
+the restore page lists the affected devices. Re-enter those credentials before pushing
+or testing.
 
 Excluded: temporary files, restore recovery/staging material, in-memory tools
 results and notifications, environment variables, compose/Kubernetes/proxy

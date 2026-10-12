@@ -69,6 +69,11 @@ func validateBackup(dir string) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if b, err := os.ReadFile(s.deviceKeyPath()); err == nil && len(b) != deviceKeySize {
+		return errors.New("invalid device credential key")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	certPEM, ce := os.ReadFile(s.tlsCertPath())
 	keyPEM, ke := os.ReadFile(s.tlsKeyPath())
 	if !errors.Is(ce, os.ErrNotExist) || !errors.Is(ke, os.ErrNotExist) {
@@ -297,8 +302,16 @@ func validateBackup(dir string) error {
 
 // validateDevices checks device records like the device store writes them. Stored
 // credential blobs are opaque here; they are checked against the live key later.
+// deviceBackupRecord is a device as older backups may hold it: verify and ca_id
+// were removed, and are still accepted (and ignored) so those files restore.
+type deviceBackupRecord struct {
+	Device
+	Verify string `json:"verify,omitempty"`
+	CAID   string `json:"ca_id,omitempty"`
+}
+
 func validateDevices(dir string) error {
-	var devs []Device
+	var devs []deviceBackupRecord
 	if err := backupJSON(filepath.Join(dir, "devices.json"), &devs); err != nil {
 		return err
 	}
@@ -306,12 +319,11 @@ func validateDevices(dir string) error {
 		return errors.New("too many devices")
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
-	for _, d := range devs {
+	for _, rec := range devs {
+		d := rec.Device
 		if d.ID == "" || ids[d.ID] || d.Name == "" || names[d.Name] || len(d.Name) > 256 ||
 			net.ParseIP(d.ManagementIP) == nil || d.Port < 1 || d.Port > 65535 ||
-			(d.Platform != devicePlatformIOSXE && d.Platform != devicePlatformNXOS) ||
-			(d.Verify != gnoiVerifyCA && d.Verify != gnoiVerifyFingerprint && d.Verify != gnoiVerifyUnverified) ||
-			(d.Verify == gnoiVerifyCA && !backupCAID(d.CAID)) || len(d.Credentials) > 64<<10 {
+			(d.Platform != devicePlatformIOSXE && d.Platform != devicePlatformNXOS) || len(d.Credentials) > 64<<10 {
 			return errors.New("invalid device record")
 		}
 		ids[d.ID], names[d.Name] = true, true
@@ -333,7 +345,8 @@ func validateDefinitions(dir string) error {
 	for _, d := range defs {
 		if d.ID == "" || ids[d.ID] || !validTemplateName(d.Name) || names[strings.ToLower(d.Name)] || !backupCAID(d.CAID) ||
 			d.Profile == "" || len(d.Profile) > 64 || d.ValidDays < 1 || d.ValidDays > 36500 || !validCertID(d.CertID) ||
-			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 {
+			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 ||
+			(d.CNSource != "" && d.CNSource != definitionCNName && d.CNSource != definitionCNFQDN) {
 			return errors.New("invalid definition record")
 		}
 		for _, san := range d.ExtraSANs {

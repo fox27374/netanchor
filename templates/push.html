@@ -7,19 +7,8 @@
   <p class="muted">Installing a certificate can make a device bind its gNMI/gNOI server to it. NetAnchor has no revoke action. Devices are handled one at a time, and a failure on one does not stop the rest. Devices that already have the definition's certificate id are skipped; renewal comes with Rotate.</p>
 </div>
 
-<div class="panel">
-  <h3>Devices</h3>
-  <form method="get" action="/push" class="form-grid">
-    <div><label for="site">Filter by site</label><input id="site" name="site" value="{{$v.Site}}"></div>
-    <div><label for="tag">Filter by tag</label><input id="tag" name="tag" value="{{$v.Tag}}"></div>
-    <div><button class="btn secondary" type="submit">Apply filter</button></div>
-  </form>
-</div>
-
 <form method="post" action="/push">
   <input type="hidden" name="csrf" value="{{$v.CSRF}}">
-  <input type="hidden" name="site" value="{{$v.Site}}">
-  <input type="hidden" name="tag" value="{{$v.Tag}}">
 
   <div class="panel">
     <h3>Certificate</h3>
@@ -36,30 +25,37 @@
   <div class="panel">
     <h3>Select devices</h3>
     {{if $v.Devices}}
-    <table>
-      <thead><tr><th>Select</th><th>Name</th><th>Address</th><th>Site</th><th>Verification</th><th>Credentials</th></tr></thead>
+    <div class="form-grid">
+      <div><label for="filter_site">Filter by site</label><input id="filter_site" autocomplete="off"></div>
+      <div><label for="filter_tag">Filter by tag</label><input id="filter_tag" autocomplete="off"></div>
+    </div>
+    <p class="muted" style="font-size:12px">Hidden devices are not pushed, even if ticked.</p>
+    <table id="push_devices">
+      <thead><tr><th>Select</th><th>Name</th><th>Address</th><th>Site</th><th>Tags</th><th>Verification</th><th>Credentials</th></tr></thead>
       <tbody>
       {{range $v.Devices}}
-        <tr>
+        <tr data-site="{{.Site}}" data-tags="{{.Tags}}">
           <td><input type="checkbox" name="device" value="{{.ID}}" aria-label="Select {{.Name}}" {{if .Selected}}checked{{end}}></td>
           <td>{{.Name}}</td>
           <td class="mono">{{.Address}}</td>
           <td>{{.Site}}</td>
-          <td>{{if eq .Verify "ca"}}NetAnchor CA{{else if eq .Verify "fingerprint"}}Pinned fingerprint{{else}}Unverified{{end}}</td>
+          <td>{{.Tags}}</td>
+          <td>{{if .Pinned}}Pinned fingerprint{{else}}No fingerprint pinned{{end}}</td>
           <td>{{if .Stored}}stored{{else}}asked below{{end}}</td>
         </tr>
       {{end}}
       </tbody>
     </table>
     {{else}}
-    <div class="empty">No devices match.</div>
+    <div class="empty">No devices yet.</div>
     {{end}}
+    <div class="empty" id="push_none" hidden>No devices match.</div>
   </div>
 
   {{if $v.NeedCreds}}
   <div class="panel">
     <h3>Device credentials</h3>
-    <p class="muted" style="font-size:12px">Needed only for selected devices without stored credentials. Used for this push and not stored.{{if not $v.KeyAvailable}} No device key file is configured, so credentials are never stored.{{end}}</p>
+    <p class="muted" style="font-size:12px">Needed only for selected devices without stored credentials. Used for this push and not stored.</p>
     <div class="form-grid">
       <div><label for="username">Device username</label><input id="username" name="username" autocomplete="off" value="{{$v.Username}}"></div>
       <div><label for="password">Device password</label><input id="password" name="password" type="password" autocomplete="off"></div>
@@ -68,8 +64,7 @@
   {{end}}
 
   <div class="panel">
-    <label><input type="checkbox" name="unverified_ack" value="on"> A selected device is unverified: I accept that its password can be read by anyone on the path.</label>
-    <label style="margin-top:12px"><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
+    <label><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
     <div style="margin-top:16px"><button class="btn" type="submit">Push certificate to selected devices</button></div>
     <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure, and no revoke is attempted.</p>
   </div>
@@ -92,4 +87,25 @@
 </div>
 {{end}}
 
+<script>
+(function () {
+  var site = document.getElementById('filter_site'), tag = document.getElementById('filter_tag');
+  if (!site) return;
+  function apply() {
+    var s = site.value.trim().toLowerCase(), t = tag.value.trim().toLowerCase(), shown = 0;
+    document.querySelectorAll('#push_devices tbody tr').forEach(function (row) {
+      var tags = row.dataset.tags.toLowerCase().split(', ');
+      var ok = row.dataset.site.toLowerCase().indexOf(s) !== -1 &&
+        (!t || tags.some(function (x) { return x.indexOf(t) !== -1; }));
+      row.hidden = !ok;
+      row.querySelector('input').disabled = !ok; // disabled boxes are not submitted
+      if (ok) shown++;
+    });
+    document.getElementById('push_none').hidden = shown > 0;
+  }
+  site.addEventListener('input', apply);
+  tag.addEventListener('input', apply);
+  apply();
+})();
+</script>
 {{end}}

@@ -14,7 +14,7 @@ import (
 type definitionForm struct {
 	ID, Name, CAID, Profile                string
 	Country, State, Organization, City, OU string
-	ValidDays, CertID, ExtraSANs           string
+	ValidDays, CertID, ExtraSANs, CNSource string
 }
 
 type definitionListPage struct {
@@ -78,7 +78,7 @@ func (s *Server) handleDefinitionEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderDefinitionForm(w, r, definitionForm{
 		ID: def.ID, Name: def.Name, CAID: def.CAID, Profile: def.Profile,
 		Country: def.Country, State: def.State, Organization: def.Organization, City: def.City, OU: def.OU,
-		ValidDays: strconv.Itoa(def.ValidDays), CertID: def.CertID, ExtraSANs: strings.Join(def.ExtraSANs, ", "),
+		ValidDays: strconv.Itoa(def.ValidDays), CertID: def.CertID, ExtraSANs: strings.Join(def.ExtraSANs, ", "), CNSource: def.CNSource,
 	}, "")
 }
 
@@ -113,7 +113,7 @@ func (s *Server) handleDefinitionSave(w http.ResponseWriter, r *http.Request) {
 		ID: strings.TrimSpace(p.Get("id")), Name: strings.TrimSpace(p.Get("name")), CAID: p.Get("ca"), Profile: strings.TrimSpace(p.Get("profile")),
 		Country: strings.TrimSpace(p.Get("country")), State: strings.TrimSpace(p.Get("state")), Organization: strings.TrimSpace(p.Get("organization")),
 		City: strings.TrimSpace(p.Get("city")), OU: strings.TrimSpace(p.Get("ou")),
-		ValidDays: strings.TrimSpace(p.Get("valid_days")), CertID: strings.TrimSpace(p.Get("cert_id")), ExtraSANs: p.Get("extra_sans"),
+		ValidDays: strings.TrimSpace(p.Get("valid_days")), CertID: strings.TrimSpace(p.Get("cert_id")), ExtraSANs: p.Get("extra_sans"), CNSource: p.Get("cn_source"),
 	}
 	def, err := s.definitionFromForm(f)
 	if err == nil {
@@ -176,7 +176,10 @@ func (s *Server) definitionFromForm(f definitionForm) (CertDefinition, error) {
 	}
 	def.Name, def.CAID, def.Profile = f.Name, f.CAID, t.Name
 	def.Country, def.State, def.Organization, def.City, def.OU = f.Country, f.State, f.Organization, f.City, f.OU
-	def.ValidDays, def.CertID, def.ExtraSANs = days, certID, extra
+	if f.CNSource != "" && f.CNSource != definitionCNName && f.CNSource != definitionCNFQDN {
+		return def, errors.New("choose the device name or FQDN as the common name")
+	}
+	def.ValidDays, def.CertID, def.ExtraSANs, def.CNSource = days, certID, extra, f.CNSource
 	return def, nil
 }
 

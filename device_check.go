@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,7 +16,6 @@ import (
 
 	gnoicert "github.com/openconfig/gnoi/cert"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 // deviceExpiryWarn is how close to expiry a certificate is highlighted.
@@ -35,28 +33,23 @@ type deviceCheckResult struct {
 	Steps   []gnoiStep
 	Outcome string
 	Class   string // alert class: ok or err
+	Refresh bool   // from Refresh certificates, shown in the certificates panel
 }
 
 // sudiSubject carries "PID:<model> SN:<serial>" in the subject serialNumber.
 var sudiSubject = regexp.MustCompile(`PID:([^\s,]+)\s+SN:([^\s,]+)`)
 
-// gnoiInspect connects to the device with the given verification and credentials,
+// gnoiInspect connects to the device pinned to its fingerprint with the given credentials,
 // lists its certificates and, when served is set, reads the certificate the gRPC
 // port presents. It never changes the device.
-func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, served bool) (deviceReport, []gnoiStep, error) {
+func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device, creds deviceCreds, served bool, op string) (deviceReport, []gnoiStep, error) {
 	var rep deviceReport
-	run := &gnoiRun{}
-	req := gnoiPushRequest{Target: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)), Verify: dev.Verify, Fingerprint: dev.Pin}
-	var roots *x509.CertPool
-	if dev.Verify == gnoiVerifyCA {
-		chainPEM, err := st.IssuerChainPEM(dev.CAID)
-		if err != nil {
-			return rep, run.steps, run.failed("connect", err)
-		}
-		roots = x509.NewCertPool()
-		roots.AppendCertsFromPEM(chainPEM)
+	run := &gnoiRun{device: dev.Name, op: op}
+	if normalizeFingerprint(dev.Pin) == "" {
+		return rep, run.steps, run.failed("connect", errNoPin)
 	}
-	conn, err := gnoiDial(ctx, allow, req.Target, gnoiTLSConfig(req, roots, nil))
+	req := gnoiPushRequest{Target: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)), Fingerprint: dev.Pin}
+	conn, err := gnoiDial(ctx, allow, req.Target, gnoiTLSConfig(req, nil))
 	if err != nil {
 		return rep, run.steps, run.failed("connect", err)
 	}
@@ -69,7 +62,7 @@ func gnoiInspect(ctx context.Context, st *Store, allow []*net.IPNet, dev Device,
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", creds.Username, "password", creds.Password)
 	list, err := gnoicert.NewCertificateManagementClient(conn).GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return rep, run.steps, run.failed("auth", fmt.Errorf("device rejected the request: %s", status.Convert(err).Message()))
+		return rep, run.steps, run.failed("auth", gnoiRejected(err))
 	}
 	run.ok("auth", fmt.Sprintf("%d certificates listed", len(list.GetCertificateInfo())))
 
@@ -135,13 +128,35 @@ func deviceExpiryClass(notAfter, now time.Time) string {
 	case notAfter.Sub(now) < deviceExpiryWarn:
 		return "warn"
 	}
-	return ""
+	return "lock"
 }
 
-// deviceCertRow is one snapshot line with its highlight class.
+// timeLeft is the remaining validity: days under a year, else years with one decimal.
+func timeLeft(notAfter, now time.Time) string {
+	if notAfter.IsZero() {
+		return ""
+	}
+	d := notAfter.Sub(now)
+	days := int(d.Hours() / 24)
+	switch {
+	case d <= 0:
+		return "expired"
+	case days == 1:
+		return "1 day left"
+	case days < 365:
+		return fmt.Sprintf("%d days left", days)
+	}
+	return fmt.Sprintf("%.1f years left", d.Hours()/24/365.25)
+}
+
+// deviceCertRow is one certificate line with its time left and highlight class.
 type deviceCertRow struct {
 	DeviceCert
-	Class string
+	Class, Left string
+}
+
+func newDeviceCertRow(c DeviceCert, now time.Time) deviceCertRow {
+	return deviceCertRow{DeviceCert: c, Class: deviceExpiryClass(c.NotAfter, now), Left: timeLeft(c.NotAfter, now)}
 }
 
 // deviceSnapshotView turns a stored snapshot into rows for the device page.
@@ -150,25 +165,21 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 		return nil, nil
 	}
 	for _, c := range snap.Certs {
-		rows = append(rows, deviceCertRow{DeviceCert: c, Class: deviceExpiryClass(c.NotAfter, now)})
+		rows = append(rows, newDeviceCertRow(c, now))
 	}
 	if snap.Served != nil {
-		served = &deviceCertRow{DeviceCert: *snap.Served, Class: deviceExpiryClass(snap.Served.NotAfter, now)}
+		row := newDeviceCertRow(*snap.Served, now)
+		served = &row
 	}
 	return rows, served
 }
 
-// deviceCheckCreds returns the stored credentials, or the ones posted for this
-// check when none are stored. The password is never stored or echoed here.
-func (s *Server) deviceCheckCreds(dev Device, p url.Values) (deviceCreds, error) {
+// deviceCheckCreds returns the stored credentials.
+func (s *Server) deviceCheckCreds(dev Device) (deviceCreds, error) {
 	if dev.Credentials != nil {
 		return s.store.openCredentials(dev.Credentials)
 	}
-	u, pw := strings.TrimSpace(p.Get("username")), p.Get("password")
-	if u == "" || pw == "" {
-		return deviceCreds{}, errors.New("no credentials are stored: enter the username and password for this check")
-	}
-	return deviceCreds{Username: u, Password: pw}, nil
+	return deviceCreds{}, errors.New("no credentials are stored: add them with Edit device")
 }
 
 // handleDeviceTest connects with the device's verification and credentials and
@@ -205,15 +216,19 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 		http.NotFound(w, r)
 		return
 	}
-	creds, err := s.deviceCheckCreds(dev, r.PostForm)
+	creds, err := s.deviceCheckCreds(dev)
 	if err != nil {
-		s.renderDeviceDetail(w, r, dev, nil, err.Error())
+		s.renderDeviceDetail(w, r, dev, &deviceCheckResult{Outcome: err.Error(), Class: "err", Refresh: refresh}, "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)
 	defer cancel()
-	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, creds, refresh)
-	res := &deviceCheckResult{Steps: steps, Outcome: "Test connection succeeded.", Class: "ok"}
+	op := "test"
+	if refresh {
+		op = "refresh"
+	}
+	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, creds, refresh, op)
+	res := &deviceCheckResult{Steps: steps, Outcome: "Test connection succeeded.", Class: "ok", Refresh: refresh}
 	if err != nil {
 		res.Outcome, res.Class = "Failed at "+steps[len(steps)-1].Name+": "+err.Error(), "err"
 		s.renderDeviceDetail(w, r, dev, res, "")

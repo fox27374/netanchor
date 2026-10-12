@@ -18,7 +18,7 @@ func definitionForm1(name string) url.Values {
 }
 
 func TestDefinitionCRUD(t *testing.T) {
-	st, srv := deviceTestStore(t, false)
+	st, srv := deviceTestStore(t)
 	_, err := CreateCA(st, CAParams{CommonName: "root", Algo: algoECP256, ValidDays: 3650})
 	backupCheck(t, err)
 
@@ -66,7 +66,7 @@ func TestDefinitionCRUD(t *testing.T) {
 }
 
 func TestDefinitionValidation(t *testing.T) {
-	st, srv := deviceTestStore(t, false)
+	st, srv := deviceTestStore(t)
 	_, err := CreateCA(st, CAParams{CommonName: "root", Algo: algoECP256, ValidDays: 30})
 	backupCheck(t, err)
 	backupCheck(t, st.AddTemplate(CertTemplate{Name: "ec-only", Profile: profileServer, Algo: algoECP256, ValidDays: 90, MaxDays: 365, AllowedAlgos: []keyAlgo{algoECP256}}))
