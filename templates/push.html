@@ -4,7 +4,7 @@
 
 <div class="panel">
   <p class="muted">Pick a certificate definition and the devices to install it on. Each device generates its own key. NetAnchor signs the device's request under the definition's CA and profile, then installs the certificate and CA chain. No private key exists in NetAnchor.</p>
-  <p class="muted">Installing a certificate can make a device bind its gNMI/gNOI server to it. NetAnchor has no revoke action. Devices are handled one at a time, and a failure on one does not stop the rest. Devices that already have the definition's certificate id are skipped; renewal comes with Rotate.</p>
+  <p class="muted">Installing a certificate can make a device bind its gNMI/gNOI server to it. Devices are handled one at a time, and a failure on one does not stop the rest. Devices that already have the definition's certificate id are skipped; renewal comes with Rotate.</p>
 </div>
 
 <form method="post" action="/push">
@@ -66,7 +66,7 @@
   <div class="panel">
     <label><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
     <div style="margin-top:16px"><button class="btn" type="submit">Push certificate to selected devices</button></div>
-    <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure, and no revoke is attempted.</p>
+    <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure. To remove a certificate from a device, use Delete on its device page.</p>
   </div>
 </form>
 
