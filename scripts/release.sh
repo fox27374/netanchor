@@ -21,10 +21,14 @@ git remote get-url "$remote" >/dev/null 2>&1 || fail "Tracking remote '$remote' 
 git fetch "$remote" || fail 'Could not fetch tracking remote; verify connectivity and retry after inspection'
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$remote/main")" ] || fail "Local main is not up to date with $remote/main"
 if git show-ref --verify --quiet "refs/tags/$tag"; then fail "Local tag $tag already exists"; fi
-tag_result=$(git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" 2>&1) || {
+# Only stdout lists refs. stderr (e.g. ssh "Permanently added ... to known hosts")
+# is kept apart so a warning is never mistaken for an existing tag.
+tag_err=$(mktemp)
+tag_result=$(git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" 2>"$tag_err") || {
   status=$?
-  [ "$status" -eq 2 ] || fail "Could not check remote tag $tag (git ls-remote exit $status): $tag_result"
+  [ "$status" -eq 2 ] || { msg=$(cat "$tag_err"); rm -f "$tag_err"; fail "Could not check remote tag $tag (git ls-remote exit $status): $msg"; }
 }
+rm -f "$tag_err"
 [ -z "$tag_result" ] || fail "Remote tag $tag already exists"
 
 make verify || fail 'Verification failed; no release changes were made'
