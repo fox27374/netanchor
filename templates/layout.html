@@ -268,7 +268,7 @@
   {{if .Error}}<div class="alert err" role="alert">{{.Error}}</div>{{end}}
   {{if .Flash}}
   <aside class="toast alert ok" role="status" aria-live="polite">
-    <div><strong>{{.Flash.Title}}</strong><p>{{.Flash.Body}}</p></div>
+    <div><strong>{{.Flash.Title}}</strong>{{if .Flash.Body}}<p>{{.Flash.Body}}</p>{{end}}</div>
     <button type="button" aria-label="Dismiss notification" onclick="this.parentElement.remove()">&times;</button>
   </aside>
   {{end}}

@@ -147,11 +147,5 @@
 {{end}}
 
 {{define "device_check"}}
-  <div class="alert {{.Class}}" role="status">{{.Outcome}}</div>
-  {{if .Steps}}
-  <table>
-    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>{{range .Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
-  </table>
-  {{end}}
+  <div class="alert {{.Class}}" role="status">{{.Outcome}} Each step is in the <a href="/logs">logs</a>.</div>
 {{end}}

@@ -84,6 +84,9 @@ func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev 
 	d := s.base(r, dev.Name, "devices")
 	d.Error = errMsg
 	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, CSRF: s.backupToken(r), Check: check}
+	if check != nil && check.Class == "ok" { // success is a toast; the steps are in the log
+		d.Flash, page.Check = &caFlash{Title: check.Outcome}, nil
+	}
 	if dev.Snapshot != nil {
 		page.Snapshot, page.Served = deviceSnapshotView(dev.Snapshot, time.Now())
 		page.Taken = dev.Snapshot.Taken
