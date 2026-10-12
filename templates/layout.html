@@ -42,6 +42,12 @@
   .btn { display:inline-block; margin-top:20px; background:var(--accent); color:var(--button-text); border:1px solid transparent; padding:10px 20px; border-radius:8px; font-family:inherit; font-size:14px; line-height:1.2; font-weight:600; cursor:pointer; text-decoration:none; }
   .btn:hover { filter:brightness(1.08); }
   .btn.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .btn.danger { background:var(--err); }
+  dialog.confirm { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:24px; max-width:min(440px, calc(100vw - 48px)); box-shadow:0 8px 24px #0008; }
+  dialog.confirm::backdrop { background:#0009; }
+  dialog.confirm h3 { margin:0 0 8px; }
+  dialog.confirm p { margin:0; color:var(--muted); }
+  dialog.confirm .actions { display:flex; gap:8px; justify-content:flex-end; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   table a { color:var(--accent); }
   th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); }
@@ -276,6 +282,16 @@
   <footer class="appfooter">NetAnchor {{.Version}}</footer>
 </main>
 </div>
+<dialog class="confirm" id="confirm-dialog" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h3 id="confirm-title">Are you sure?</h3>
+    <p></p>
+    <div class="actions">
+      <button class="btn secondary" value="cancel" autofocus>Cancel</button>
+      <button class="btn danger" value="ok">Delete</button>
+    </div>
+  </form>
+</dialog>
 <script>
   document.querySelectorAll('.theme-toggle').forEach(function(button) {
     var light = document.documentElement.dataset.theme === 'light';
@@ -290,6 +306,24 @@
     button.querySelector('.theme-icon').textContent = light ? '☾' : '☀';
     try { localStorage.setItem('netanchor-theme', light ? 'light' : 'dark'); } catch (_) {}
   }
+  // A submit button with data-confirm asks in #confirm-dialog first and submits
+  // its form (with that button as submitter) only when Delete is chosen.
+  (function () {
+    var dlg = document.getElementById('confirm-dialog'), pending = null;
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-confirm]');
+      if (!btn) return;
+      e.preventDefault();
+      pending = btn;
+      dlg.querySelector('p').textContent = btn.dataset.confirm;
+      dlg.querySelector('.danger').textContent = btn.dataset.confirmLabel || 'Delete';
+      dlg.showModal();
+    });
+    dlg.addEventListener('close', function () {
+      if (dlg.returnValue === 'ok' && pending) pending.form.requestSubmit(pending);
+      pending = null;
+    });
+  })();
   document.querySelectorAll('.toast').forEach(function (toast) {
     setTimeout(function () { toast.remove(); }, 8000);
   });

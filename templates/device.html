@@ -91,7 +91,7 @@
     <input type="hidden" name="csrf" value="{{$v.CSRF}}">
     <a class="btn secondary" href="/devices/{{$d.ID}}/edit">Edit device</a>
     <button class="btn secondary" type="submit">Test connection</button>
-    <button class="btn" style="background:var(--err)" type="submit" name="confirm_delete" value="on" formaction="/devices/{{$d.ID}}/delete" onclick="return window.confirm({{printf "Delete %s and its stored credentials? Certificates on the switch are not changed." $d.Name}})">Delete device</button>
+    <button class="btn danger" type="submit" name="confirm_delete" value="on" formaction="/devices/{{$d.ID}}/delete" data-confirm="Delete {{$d.Name}} and its stored credentials? Certificates on the switch are not changed." data-confirm-label="Delete device">Delete device</button>
   </form>
   {{if not $v.Stored}}<p class="muted" style="font-size:12px">No credentials are stored. Add them with Edit device to test or refresh.</p>{{end}}
   {{if and $v.Check (not $v.Check.Refresh)}}{{template "device_check" $v.Check}}{{end}}
@@ -99,7 +99,7 @@
 </div>
 
 <div class="panel" id="certificates">
-  <h3>Certificates on the device</h3>
+  <h3>Certificates</h3>
   {{if .IsAdmin}}
   <form method="post" action="/devices/{{$d.ID}}/refresh#certificates">
     <input type="hidden" name="csrf" value="{{$v.CSRF}}">
@@ -129,7 +129,7 @@
             <input type="hidden" name="csrf" value="{{$v.CSRF}}">
             <input type="hidden" name="cert_id" value="{{.CertID}}">
             <input type="hidden" name="confirm" value="on">
-            <button class="btn secondary" type="submit" aria-label="Delete {{.CertID}}" onclick="return window.confirm({{printf "Remove %s from the switch?" .CertID}})">Delete</button>
+            <button class="btn danger" type="submit" aria-label="Delete {{.CertID}}" data-confirm="Remove {{.CertID}} from the switch?">Delete</button>
           </form>
           {{end}}
         </td>{{end}}
