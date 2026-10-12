@@ -75,15 +75,9 @@
   <h3>Results</h3>
   <div class="alert {{$v.Class}}" role="status"><strong>{{$v.Outcome}}</strong></div>
   {{range $v.Results}}
-  <h4>{{.Device}}: {{.Status}}</h4>
-  <div class="alert {{.Class}}">{{.Outcome}}</div>
-  {{if .Steps}}
-  <table>
-    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>{{range .Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
-  </table>
+  <div class="alert {{.Class}}"><strong>{{.Device}}: {{.Status}}.</strong> {{.Outcome}}</div>
   {{end}}
-  {{end}}
+  <p class="muted">Each step is in the <a href="/logs">logs</a>.</p>
 </div>
 {{end}}
 

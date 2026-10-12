@@ -363,3 +363,18 @@ func TestPushUsesTemplatedCommonName(t *testing.T) {
 		t.Fatalf("SANs dns=%v ip=%v, want the FQDN and management IP from the default templates", cert.DNSNames, cert.IPAddresses)
 	}
 }
+
+func TestPushToast(t *testing.T) {
+	r := func(dev, status string) devicePushResult { return devicePushResult{Device: dev, Status: status} }
+	if f := pushToast([]devicePushResult{r("a", "ok"), r("b", "skipped")}); f == nil || f.Title != "Successfully pushed to 1 device" || f.Body != "Already installed, skipped: b." {
+		t.Fatalf("ok+skipped: %+v", f)
+	}
+	if f := pushToast([]devicePushResult{r("b", "skipped")}); f == nil || f.Title != "Nothing pushed" {
+		t.Fatalf("all skipped: %+v", f)
+	}
+	for _, bad := range []string{"failed", "unverified"} {
+		if f := pushToast([]devicePushResult{r("a", "ok"), r("b", bad)}); f != nil {
+			t.Fatalf("%s gave a toast: %+v", bad, f)
+		}
+	}
+}
