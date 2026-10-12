@@ -91,7 +91,7 @@
     <input type="hidden" name="csrf" value="{{$v.CSRF}}">
     <a class="btn secondary" href="/devices/{{$d.ID}}/edit">Edit device</a>
     <button class="btn secondary" type="submit">Test connection</button>
-    <button class="btn" style="background:var(--err)" type="submit" name="confirm_delete" value="on" formaction="/devices/{{$d.ID}}/delete" onclick="return confirm({{printf "Delete %s and its stored credentials? Certificates on the switch are not changed." $d.Name}})">Delete device</button>
+    <button class="btn" style="background:var(--err)" type="submit" name="confirm_delete" value="on" formaction="/devices/{{$d.ID}}/delete" onclick="return window.confirm({{printf "Delete %s and its stored credentials? Certificates on the switch are not changed." $d.Name}})">Delete device</button>
   </form>
   {{if not $v.Stored}}<p class="muted" style="font-size:12px">No credentials are stored. Add them with Edit device to test or refresh.</p>{{end}}
   {{if and $v.Check (not $v.Check.Refresh)}}{{template "device_check" $v.Check}}{{end}}
@@ -125,11 +125,11 @@
           {{if .GRPC}}<span class="muted" title="Protected: the gRPC server uses it">&#128274; gRPC server</span>
           {{else if .SUDI}}<span class="muted" title="Protected: Cisco SUDI">&#128274; Cisco SUDI</span>
           {{else if .CertID}}
-          <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates" onsubmit="return confirm({{printf "Remove %s from the switch?" .CertID}})">
+          <form method="post" action="/devices/{{$d.ID}}/certificates/revoke#certificates">
             <input type="hidden" name="csrf" value="{{$v.CSRF}}">
             <input type="hidden" name="cert_id" value="{{.CertID}}">
             <input type="hidden" name="confirm" value="on">
-            <button class="btn secondary" type="submit" aria-label="Delete {{.CertID}}">Delete</button>
+            <button class="btn secondary" type="submit" aria-label="Delete {{.CertID}}" onclick="return window.confirm({{printf "Remove %s from the switch?" .CertID}})">Delete</button>
           </form>
           {{end}}
         </td>{{end}}
@@ -147,11 +147,5 @@
 {{end}}
 
 {{define "device_check"}}
-  <div class="alert {{.Class}}" role="status">{{.Outcome}}</div>
-  {{if .Steps}}
-  <table>
-    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>{{range .Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
-  </table>
-  {{end}}
+  <div class="alert {{.Class}}" role="status">{{.Outcome}} Each step is in the <a href="/logs">logs</a>.</div>
 {{end}}

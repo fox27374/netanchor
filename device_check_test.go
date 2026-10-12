@@ -519,6 +519,10 @@ func TestDevicePageDeleteControlOnlyForDeletableRows(t *testing.T) {
 	if n := strings.Count(body, action); n != 1 {
 		t.Fatalf("delete forms = %d, want 1 (only netanchor-a)", n)
 	}
+	// The form has an input named "confirm", which shadows window.confirm inside inline handlers.
+	if !strings.Contains(body, `onclick="return window.confirm(&#34;Remove netanchor-a from the switch?&#34;)"`) {
+		t.Fatal("delete button does not ask with window.confirm")
+	}
 	if !strings.Contains(body, `name="cert_id" value="netanchor-a"`) {
 		t.Fatal("deletable row has no delete form")
 	}
