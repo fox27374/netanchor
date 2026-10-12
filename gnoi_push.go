@@ -152,7 +152,7 @@ func gnoiPush(ctx context.Context, st *Store, allow []*net.IPNet, req gnoiPushRe
 	authCtx := metadata.AppendToOutgoingContext(ctx, "username", req.Username, "password", req.Password)
 	list, err := cli.GetCertificates(authCtx, &gnoicert.GetCertificatesRequest{})
 	if err != nil {
-		return nil, nil, run.failed("auth", fmt.Errorf("device rejected the request: %s", status.Convert(err).Message()))
+		return nil, nil, run.failed("auth", fmt.Errorf("device rejected the request: %s %s", status.Code(err), status.Convert(err).Message()))
 	}
 	for _, c := range list.GetCertificateInfo() {
 		if c.GetCertificateId() == req.CertID {
