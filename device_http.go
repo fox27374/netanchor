@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -43,42 +42,6 @@ type deviceDetailPage struct {
 	Served   *deviceCertRow
 	Taken    time.Time
 	Check    *deviceCheckResult
-	Pushes   []deviceCertRow
-}
-
-// devicePushRow is one certificate push to a device, read from the certificate records.
-// devicePushes lists the certificates pushed to this device's gRPC address, newest first.
-func (s *Server) devicePushes(dev Device) ([]deviceCertRow, error) {
-	recs, err := s.store.Records()
-	if err != nil {
-		return nil, err
-	}
-	target := net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port))
-	type pushed struct {
-		at  time.Time
-		row deviceCertRow
-	}
-	var list []pushed
-	now := time.Now()
-	for _, rec := range recs {
-		for _, p := range rec.Pushes {
-			if p.Target != target {
-				continue
-			}
-			certPEM, _ := s.store.LoadCertPEM(rec.Serial)
-			c := parseDeviceCert(p.CertID, certPEM)
-			if c.Subject == "" { // certificate file unreadable: fall back to the record
-				c.Subject, c.NotAfter = "CN="+rec.CommonName, rec.NotAfter
-			}
-			list = append(list, pushed{p.Time, newDeviceCertRow(c, now)})
-		}
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].at.After(list[j].at) })
-	rows := make([]deviceCertRow, len(list))
-	for i, p := range list {
-		rows[i] = p.row
-	}
-	return rows, nil
 }
 
 // IsForm tells device.html whether to render the add/edit form or the details.
@@ -121,11 +84,6 @@ func (s *Server) renderDeviceDetail(w http.ResponseWriter, r *http.Request, dev 
 	d := s.base(r, dev.Name, "devices")
 	d.Error = errMsg
 	page := deviceDetailPage{Device: dev, Stored: dev.Credentials != nil, CSRF: s.backupToken(r), Check: check}
-	pushes, err := s.devicePushes(dev)
-	if err != nil {
-		d.Error = err.Error()
-	}
-	page.Pushes = pushes
 	if dev.Snapshot != nil {
 		page.Snapshot, page.Served = deviceSnapshotView(dev.Snapshot, time.Now())
 		page.Taken = dev.Snapshot.Taken
