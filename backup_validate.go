@@ -343,16 +343,17 @@ func validateDefinitions(dir string) error {
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
 	for _, d := range defs {
+		// Records from before templates are converted first, so they check like new ones.
+		legacyCN := d.CNSource != "" && d.CNSource != definitionCNName && d.CNSource != definitionCNFQDN
 		if d.ID == "" || ids[d.ID] || !validTemplateName(d.Name) || names[strings.ToLower(d.Name)] || !backupCAID(d.CAID) ||
 			d.Profile == "" || len(d.Profile) > 64 || d.ValidDays < 1 || d.ValidDays > 36500 || !validCertID(d.CertID) ||
-			d.Country == "" || d.State == "" || d.Organization == "" || len(d.ExtraSANs) > 64 ||
-			(d.CNSource != "" && d.CNSource != definitionCNName && d.CNSource != definitionCNFQDN) {
+			d.Country == "" || d.State == "" || d.Organization == "" || legacyCN ||
+			len(d.ExtraSANs) > 64 || len(d.DNSSANs) > 64 || len(d.IPSANs) > 64 {
 			return errors.New("invalid definition record")
 		}
-		for _, san := range d.ExtraSANs {
-			if net.ParseIP(san) == nil && !validDNSName(san) {
-				return errors.New("invalid definition SAN")
-			}
+		migrateLegacyDefinition(&d)
+		if err := checkDefinitionTemplates(d.CommonName, d.DNSSANs, d.IPSANs); err != nil {
+			return fmt.Errorf("invalid definition %q: %w", d.Name, err)
 		}
 		ids[d.ID], names[strings.ToLower(d.Name)] = true, true
 	}

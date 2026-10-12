@@ -46,7 +46,7 @@ func deviceForEnv(t *testing.T, env *gnoiTestEnv, withCreds bool) Device {
 		t.Fatal(err)
 	}
 	port, _ := strconv.Atoi(portStr)
-	dev := Device{Name: "lab-" + portStr, ManagementIP: host, Port: port, Platform: devicePlatformIOSXE, Pin: env.fp}
+	dev := Device{Name: "lab-" + portStr, FQDN: "lab-" + portStr + ".example.net", ManagementIP: host, Port: port, Platform: devicePlatformIOSXE, Pin: env.fp}
 	if withCreds {
 		dev.Credentials, err = env.store.sealCredentials(deviceCreds{Username: testDevUser, Password: testDevPass})
 		if err != nil {

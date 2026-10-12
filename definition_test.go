@@ -14,6 +14,7 @@ func definitionForm1(name string) url.Values {
 	return url.Values{
 		"name": {name}, "ca": {caRoot}, "profile": {"TLS-Server"}, "valid_days": {"90"},
 		"country": {"NL"}, "state": {"Utrecht"}, "organization": {"Example Corp"},
+		"common_name": {"{{ fqdn }}"}, "dns_sans": {"{{ fqdn }}"}, "ip_sans": {"{{ ip }}"},
 	}
 }
 
@@ -41,13 +42,14 @@ func TestDefinitionCRUD(t *testing.T) {
 	edit.Set("id", id)
 	edit.Set("valid_days", "120")
 	edit.Set("cert_id", "core.tls-1")
-	edit.Set("extra_sans", "lb.example.net, 192.0.2.99")
+	edit.Set("dns_sans", "{{ fqdn }}, lb.example.net")
+	edit.Set("ip_sans", "{{ ip }}, 192.0.2.99")
 	if rec := devicePost(srv, "/definitions/save", edit); rec.Code != http.StatusSeeOther {
 		t.Fatalf("edit: status %d: %s", rec.Code, rec.Body.String())
 	}
 	got, ok, err := st.GetDefinition(id)
 	backupCheck(t, err)
-	if !ok || got.ValidDays != 120 || got.CertID != "core.tls-1" || len(got.ExtraSANs) != 2 || got.Created.IsZero() {
+	if !ok || got.ValidDays != 120 || got.CertID != "core.tls-1" || len(got.DNSSANs) != 2 || len(got.IPSANs) != 2 || got.Created.IsZero() {
 		t.Fatalf("after edit = %+v", got)
 	}
 	if rec := deviceGet(srv, "/definitions/"+id+"/edit"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "core-tls") {
@@ -81,7 +83,11 @@ func TestDefinitionValidation(t *testing.T) {
 		"validity zero":     func(v url.Values) { v.Set("valid_days", "0") },
 		"past CA expiry":    func(v url.Values) { v.Set("valid_days", "90") },
 		"bad cert id":       func(v url.Values) { v.Set("cert_id", "a/b") },
-		"bad extra SAN":     func(v url.Values) { v.Set("extra_sans", "bad_name!") },
+		"bad DNS SAN":       func(v url.Values) { v.Set("dns_sans", "bad_name!") },
+		"bad fixed IP SAN":  func(v url.Values) { v.Set("ip_sans", "192.0.2.999") },
+		"unknown variable":  func(v url.Values) { v.Set("common_name", "{{ host }}") },
+		"stray brace":       func(v url.Values) { v.Set("dns_sans", "a }} {{ fqdn }}") },
+		"empty common name": func(v url.Values) { v.Set("common_name", "") },
 	}
 	for name, mutate := range cases {
 		f := definitionForm1("core")
@@ -148,7 +154,7 @@ func TestDefinitionBackupRoundTrip(t *testing.T) {
 	s, _ := backupFixture(t)
 	d := CertDefinition{
 		Name: "core-tls", CAID: caRoot, Profile: "TLS-Server", Country: "NL", State: "Utrecht", Organization: "Example",
-		ValidDays: 90, CertID: "netanchor-core-tls", ExtraSANs: []string{"lb.example.net"}, Created: time.Now().UTC(),
+		ValidDays: 90, CertID: "netanchor-core-tls", CommonName: "{{ fqdn }}", DNSSANs: []string{"lb.example.net"}, Created: time.Now().UTC(),
 	}
 	backupCheck(t, s.SaveDefinition(&d))
 
@@ -163,7 +169,7 @@ func TestDefinitionBackupRoundTrip(t *testing.T) {
 
 	restored, err := (&Store{dir: stage}).ListDefinitions()
 	backupCheck(t, err)
-	if len(restored) != 1 || restored[0].ID != d.ID || restored[0].CertID != "netanchor-core-tls" || len(restored[0].ExtraSANs) != 1 {
+	if len(restored) != 1 || restored[0].ID != d.ID || restored[0].CertID != "netanchor-core-tls" || len(restored[0].DNSSANs) != 1 {
 		t.Fatalf("restored definitions = %+v", restored)
 	}
 }

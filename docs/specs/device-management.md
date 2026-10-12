@@ -72,10 +72,16 @@ certificates to one or many devices over gNOI without touching the device CLI.
 ## Device certificate definitions
 - Fields: name, issuing CA, profile (existing templates), Country, State,
   Organization (required), City, OU (optional), validity days (capped by profile),
-  cert_id (default `netanchor-<name>`), SAN rule (DNS = device FQDN, IP = management
-  IP, plus fixed extra SANs).
-- CN = device FQDN, or device name when FQDN is empty. Key fixed RSA 2048, checked
-  against profile policy.
+  cert_id (default `netanchor-<name>`), common name and DNS/IP SAN lists (comma separated).
+- Common name and SAN entries are templates filled from each device at push time:
+  `{{ fqdn }}`, `{{ name }}`, `{{ ip }}` (spaces optional, plain text allowed). Defaults:
+  CN `{{ fqdn }}`, DNS SANs `{{ fqdn }}`, IP SANs `{{ ip }}`. Only these fields go into
+  the certificate; nothing is added automatically.
+- An empty placeholder drops that SAN entry; an empty common name fails the device; an IP
+  entry that is not an IP after filling fails the device. Unknown placeholders and stray
+  braces are refused at save time and on restore.
+- Definitions saved before templates are converted on load (CN from the old CN source,
+  SANs from the old FQDN and extra SANs). Key fixed RSA 2048, checked against profile policy.
 
 ## Push
 - Pick one definition and one or more devices; CA passphrase asked once, never stored.

@@ -26,13 +26,7 @@
 
 <div class="panel">
   <h3>Subject</h3>
-  <p class="muted" style="font-size:12px">One definition serves every device: the common name and SANs are filled from each device when it is pushed.</p>
   <div class="form-grid">
-    <div><label for="cn_source">Common name</label>
-      <select id="cn_source" name="cn_source">
-        <option value="fqdn" {{if ne $v.Form.CNSource "name"}}selected{{end}}>Device FQDN (device name if the FQDN is empty)</option>
-        <option value="name" {{if eq $v.Form.CNSource "name"}}selected{{end}}>Device name</option>
-      </select></div>
     <div><label for="country">Country (2 letters)</label><input id="country" name="country" required maxlength="2" value="{{$v.Form.Country}}"></div>
     <div><label for="state">State</label><input id="state" name="state" required value="{{$v.Form.State}}"></div>
     <div><label for="organization">Organization</label><input id="organization" name="organization" required value="{{$v.Form.Organization}}"></div>
@@ -42,10 +36,13 @@
 </div>
 
 <div class="panel">
-  <h3>Subject alternative names</h3>
-  <p class="muted" style="font-size:12px">Each push adds the device FQDN as a DNS name and the management IP as an IP address. Add fixed extra DNS names or IP addresses below, comma separated.</p>
-  <label for="extra_sans">Extra SANs (optional)</label>
-  <input id="extra_sans" name="extra_sans" value="{{$v.Form.ExtraSANs}}">
+  <h3>Common name and subject alternative names</h3>
+  <p class="muted" style="font-size:12px">One definition serves every device. Each push fills these templates from the device. Placeholders: <code>{{"{{ fqdn }}"}}</code> device FQDN, <code>{{"{{ name }}"}}</code> device name, <code>{{"{{ ip }}"}}</code> management IP. Plain text around them is kept, for example <code>sw-{{"{{ name }}"}}.example.net</code>. Only these fields go into the certificate: no FQDN or IP is added automatically. A DNS or IP entry whose placeholder is empty for a device is left out. An empty common name fails that device.</p>
+  <div class="form-grid">
+    <div><label for="common_name">Common name</label><input id="common_name" name="common_name" required value="{{$v.Form.CommonName}}"></div>
+    <div><label for="dns_sans">DNS SANs (comma separated)</label><input id="dns_sans" name="dns_sans" value="{{$v.Form.DNSSANs}}"></div>
+    <div><label for="ip_sans">IP SANs (comma separated)</label><input id="ip_sans" name="ip_sans" value="{{$v.Form.IPSANs}}"></div>
+  </div>
 </div>
 
 <div class="panel">

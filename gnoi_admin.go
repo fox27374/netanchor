@@ -172,24 +172,9 @@ func pushOneDevice(ctx context.Context, st *Store, allow []*net.IPNet, def CertD
 	}
 
 	target := net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port))
-	cn := dev.Name
-	var dnsNames []string
-	var ips []net.IP
-	if dev.FQDN != "" {
-		if def.CNSource != definitionCNName {
-			cn = dev.FQDN
-		}
-		dnsNames = append(dnsNames, dev.FQDN)
-	}
-	if ip := net.ParseIP(dev.ManagementIP); ip != nil {
-		ips = append(ips, ip)
-	}
-	for _, san := range def.ExtraSANs {
-		if ip := net.ParseIP(san); ip != nil {
-			ips = append(ips, ip)
-		} else {
-			dnsNames = append(dnsNames, san)
-		}
+	cn, dnsNames, ips, err := definitionSubject(def, dev)
+	if err != nil {
+		return fail(err.Error())
 	}
 	req := gnoiPushRequest{
 		Target: target, Username: creds.Username, Password: creds.Password,
