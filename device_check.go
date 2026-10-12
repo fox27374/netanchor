@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,6 +33,7 @@ type deviceCheckResult struct {
 	Steps   []gnoiStep
 	Outcome string
 	Class   string // alert class: ok or err
+	Refresh bool   // from Refresh certificates, shown in the certificates panel
 }
 
 // sudiSubject carries "PID:<model> SN:<serial>" in the subject serialNumber.
@@ -157,17 +157,12 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 	return rows, served
 }
 
-// deviceCheckCreds returns the stored credentials, or the ones posted for this
-// check when none are stored. The password is never stored or echoed here.
-func (s *Server) deviceCheckCreds(dev Device, p url.Values) (deviceCreds, error) {
+// deviceCheckCreds returns the stored credentials.
+func (s *Server) deviceCheckCreds(dev Device) (deviceCreds, error) {
 	if dev.Credentials != nil {
 		return s.store.openCredentials(dev.Credentials)
 	}
-	u, pw := strings.TrimSpace(p.Get("username")), p.Get("password")
-	if u == "" || pw == "" {
-		return deviceCreds{}, errors.New("no credentials are stored: enter the username and password for this check")
-	}
-	return deviceCreds{Username: u, Password: pw}, nil
+	return deviceCreds{}, errors.New("no credentials are stored: add them with Edit device")
 }
 
 // handleDeviceTest connects with the device's verification and credentials and
@@ -204,9 +199,9 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 		http.NotFound(w, r)
 		return
 	}
-	creds, err := s.deviceCheckCreds(dev, r.PostForm)
+	creds, err := s.deviceCheckCreds(dev)
 	if err != nil {
-		s.renderDeviceDetail(w, r, dev, &deviceCheckResult{Outcome: err.Error(), Class: "err"}, "")
+		s.renderDeviceDetail(w, r, dev, &deviceCheckResult{Outcome: err.Error(), Class: "err", Refresh: refresh}, "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)
@@ -216,7 +211,7 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 		op = "refresh"
 	}
 	rep, steps, err := gnoiInspect(ctx, s.store, s.gnoiAllow, dev, creds, refresh, op)
-	res := &deviceCheckResult{Steps: steps, Outcome: "Test connection succeeded.", Class: "ok"}
+	res := &deviceCheckResult{Steps: steps, Outcome: "Test connection succeeded.", Class: "ok", Refresh: refresh}
 	if err != nil {
 		res.Outcome, res.Class = "Failed at "+steps[len(steps)-1].Name+": "+err.Error(), "err"
 		s.renderDeviceDetail(w, r, dev, res, "")
