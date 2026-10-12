@@ -66,6 +66,7 @@
 </div>
 
 <div class="panel" id="save-result">
+  {{if $v.SaveError}}<div class="alert err" role="alert">{{$v.SaveError}}</div>{{end}}
   {{if $v.Check}}
   <h3>Connection test</h3>
   <div class="alert {{$v.Check.Class}}" role="status">{{$v.Check.Outcome}}</div>

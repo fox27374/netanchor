@@ -34,6 +34,7 @@ type deviceForm struct {
 	CSRF                            string
 	Info, ProbeError                string             // probe outcome, shown in the verification panel
 	Check                           *deviceCheckResult // add-time connection test, shown above Save
+	SaveError                       string             // validation error, shown above Save
 }
 
 type deviceDetailPage struct {
@@ -191,7 +192,7 @@ func (s *Server) renderDeviceForm(w http.ResponseWriter, r *http.Request, f devi
 		title = "Edit device"
 	}
 	d := s.base(r, title, "devices")
-	d.Error = errMsg
+	f.SaveError = errMsg // shown in the Save panel, where #save-result lands
 	d.Data = f
 	s.render(w, "device", d)
 }
