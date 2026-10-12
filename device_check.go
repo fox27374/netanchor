@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -113,9 +115,35 @@ func parseDCert(der []byte) DeviceCert {
 	if err != nil {
 		return dc
 	}
-	dc.Subject, dc.Issuer = c.Subject.String(), c.Issuer.String()
+	dc.Subject, dc.Issuer = readableDN(c.Subject.String()), readableDN(c.Issuer.String())
 	dc.NotBefore, dc.NotAfter = c.NotBefore, c.NotAfter
 	return dc
+}
+
+// hexAttr matches an attribute Go prints as OID=#<hex DER>, e.g. Cisco's
+// unstructuredName carrying the switch FQDN.
+var hexAttr = regexp.MustCompile(`(\d+(?:\.\d+)+)=#([0-9a-f]+)`)
+
+var attrNames = map[string]string{"1.2.840.113549.1.9.2": "unstructuredName", "1.2.840.113549.1.9.1": "emailAddress"}
+
+// readableDN decodes string values of attributes Go only prints as hex.
+func readableDN(dn string) string {
+	return hexAttr.ReplaceAllStringFunc(dn, func(m string) string {
+		sub := hexAttr.FindStringSubmatch(m)
+		der, err := hex.DecodeString(sub[2])
+		if err != nil {
+			return m
+		}
+		var v string
+		if rest, err := asn1.Unmarshal(der, &v); err != nil || len(rest) != 0 {
+			return m
+		}
+		name := sub[1]
+		if n, ok := attrNames[name]; ok {
+			name = n
+		}
+		return name + "=" + v
+	})
 }
 
 // deviceExpiryClass highlights expired and soon-to-expire certificates. No alerts.
@@ -156,6 +184,7 @@ type deviceCertRow struct {
 }
 
 func newDeviceCertRow(c DeviceCert, now time.Time) deviceCertRow {
+	c.Subject, c.Issuer = readableDN(c.Subject), readableDN(c.Issuer) // snapshots stored before decoding existed
 	return deviceCertRow{DeviceCert: c, Class: deviceExpiryClass(c.NotAfter, now), Left: timeLeft(c.NotAfter, now)}
 }
 

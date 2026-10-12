@@ -202,6 +202,17 @@ func TestDeviceExpiryClass(t *testing.T) {
 	}
 }
 
+func TestReadableDN(t *testing.T) {
+	in := "CN=C9300L-24P-4X_FOC2602Y6K3_sdn-network-infra-iwan,1.2.840.113549.1.9.2=#131969626b2d6c61622d737739392e6e74736c61622e6c6f63616c"
+	want := "CN=C9300L-24P-4X_FOC2602Y6K3_sdn-network-infra-iwan,unstructuredName=ibk-lab-sw99.ntslab.local"
+	if got := readableDN(in); got != want {
+		t.Fatalf("readableDN = %q, want %q", got, want)
+	}
+	if got := readableDN("CN=x,1.2.3=#zz"); got != "CN=x,1.2.3=#zz" {
+		t.Fatalf("undecodable value changed: %q", got)
+	}
+}
+
 func TestTimeLeft(t *testing.T) {
 	now := time.Now()
 	for want, when := range map[string]time.Time{
