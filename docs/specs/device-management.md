@@ -26,7 +26,7 @@ certificates to one or many devices over gNOI without touching the device CLI.
 ## Menu
 - Certificate Management: CA, Issue Certificate, Sign CSR, Templates, Issued
   certificates (own page; also stays on the Dashboard), Device certificate definitions.
-- Device Management: Devices, Push (gNOI), SCEP.
+- Device Management: Devices, Push, SCEP. Logs sit under Management.
 - Admin (unchanged): Users, Backup & Restore. Secondary (unchanged): Dashboard, Tools.
 - Same grouping on desktop and in the mobile burger menu.
 

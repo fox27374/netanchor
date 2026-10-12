@@ -256,8 +256,7 @@
     <div class="nav-group" role="group" aria-labelledby="devices-nav">
       <h2 class="nav-heading" id="devices-nav">Device Management</h2>
       <a href="/devices" {{if eq .Active "devices"}}class="active" aria-current="page"{{end}}>Devices</a>
-      {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push (gNOI)</a>{{end}}
-      {{if .IsAdmin}}<a href="/logs" {{if eq .Active "logs"}}class="active" aria-current="page"{{end}}>Logs</a>{{end}}
+      {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push</a>{{end}}
       <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
     </div>
     {{if .IsAdmin}}
@@ -265,6 +264,7 @@
       <h2 class="nav-heading" id="management-nav">Management</h2>
       <a href="/users" {{if eq .Active "users"}}class="active" aria-current="page"{{end}}>Users</a>
       <a href="/admin/backup" {{if eq .Active "backup"}}class="active" aria-current="page"{{end}}>Backup &amp; Restore</a>
+      <a href="/logs" {{if eq .Active "logs"}}class="active" aria-current="page"{{end}}>Logs</a>
     </div>
     {{end}}
     <div class="nav-secondary"><a href="/tools" {{if eq .Active "tools"}}class="active" aria-current="page"{{end}}>Tools</a></div>
