@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -211,12 +212,16 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 		}
 		rows = append(rows, row)
 	}
+	// Protected certificates (gRPC server, Cisco SUDI) go last; they cannot be deleted.
+	sort.SliceStable(rows, func(i, j int) bool { return !rows[i].protected() && rows[j].protected() })
 	if snap.Served != nil && !matched { // only shown separately when the device does not list it
 		row := newDeviceCertRow(*snap.Served, now)
 		served = &row
 	}
 	return rows, served
 }
+
+func (r deviceCertRow) protected() bool { return r.GRPC || r.SUDI }
 
 // deviceCheckCreds returns the stored credentials.
 func (s *Server) deviceCheckCreds(dev Device) (deviceCreds, error) {

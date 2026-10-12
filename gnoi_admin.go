@@ -72,6 +72,17 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 			admin = "(auth disabled)"
 		}
 		page.Results, page.Outcome, page.Class = s.pushFromForm(w, r, admin)
+		if page.Class == "ok" && len(page.Results) > 0 {
+			// Everything installed: a toast is enough, the per-device steps are in the log.
+			noun := "devices"
+			if len(page.Results) == 1 {
+				noun = "device"
+			}
+			d.Flash = &caFlash{Title: fmt.Sprintf("Successfully pushed to %d %s", len(page.Results), noun), Body: "Installed and verified on every selected device."}
+			page.Results, page.Outcome = nil, ""
+		} else {
+			page.Results = pushProblems(page.Results)
+		}
 	}
 	defs, err := s.store.ListDefinitions()
 	if err != nil {
@@ -271,6 +282,17 @@ func pushSummary(results []devicePushResult) (string, string) {
 		}
 	}
 	return fmt.Sprintf("%d installed, %d skipped, %d unverified, %d failed.", n["ok"], n["skipped"], n["unverified"], n["failed"]), class
+}
+
+// pushProblems keeps the devices that did not install cleanly; the summary still counts all.
+func pushProblems(results []devicePushResult) []devicePushResult {
+	var out []devicePushResult
+	for _, res := range results {
+		if res.Status != "ok" {
+			out = append(out, res)
+		}
+	}
+	return out
 }
 
 // sanitizeCertID turns a common name into a default certificate id: ASCII

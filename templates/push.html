@@ -14,7 +14,7 @@
     <h3>Certificate</h3>
     <label for="definition">Certificate definition</label>
     <select id="definition" name="definition" required>
-      {{range $v.Defs}}<option value="{{.ID}}" {{if eq .ID $v.Definition}}selected{{end}}>{{.Name}} (certificate id {{.CertID}})</option>{{end}}
+      {{range $v.Defs}}<option value="{{.ID}}" {{if eq .ID $v.Definition}}selected{{end}}>{{.Name}}</option>{{end}}
     </select>
     {{if not $v.Defs}}<p class="muted">No definitions yet. Create one under Device certificate definitions.</p>{{end}}
     <label for="ca_passphrase" style="margin-top:12px">Issuing CA passphrase (if encrypted)</label>

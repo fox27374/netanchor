@@ -264,8 +264,8 @@ func TestPushPageNeverEchoesSecretsAndShowsPushOnDevice(t *testing.T) {
 		return rec
 	}
 	rec := post("/push", form)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "1 installed") {
-		t.Fatalf("status %d, body lacks the summary", rec.Code)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Successfully pushed to 1 device<") || strings.Contains(rec.Body.String(), "<h3>Results</h3>") {
+		t.Fatalf("status %d, body lacks the success toast or still shows results", rec.Code)
 	}
 	for _, secret := range []string{testDevPass, caPass} {
 		if strings.Contains(rec.Body.String(), secret) {

@@ -522,7 +522,7 @@ func TestDevicePageDeleteControlOnlyForDeletableRows(t *testing.T) {
 	if !strings.Contains(body, `name="cert_id" value="netanchor-a"`) {
 		t.Fatal("deletable row has no delete form")
 	}
-	if !strings.Contains(body, "protected: gRPC server") || !strings.Contains(body, "protected: Cisco SUDI") {
+	if !strings.Contains(body, "&#128274; gRPC server") || !strings.Contains(body, "&#128274; Cisco SUDI") {
 		t.Fatal("protected rows not marked")
 	}
 }
