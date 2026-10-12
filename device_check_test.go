@@ -213,6 +213,21 @@ func TestReadableDN(t *testing.T) {
 	}
 }
 
+func TestSnapshotViewMarksGRPCCertificate(t *testing.T) {
+	now := time.Now()
+	a := DeviceCert{CertID: "a", Fingerprint: "AA"}
+	b := DeviceCert{CertID: "b", Fingerprint: "BB"}
+	rows, served := deviceSnapshotView(&DeviceSnapshot{Certs: []DeviceCert{a, b}, Served: &b}, now)
+	if served != nil || rows[0].GRPC || !rows[1].GRPC {
+		t.Fatalf("listed served cert: rows=%+v served=%+v", rows, served)
+	}
+	other := DeviceCert{CertID: "", Fingerprint: "CC"}
+	rows, served = deviceSnapshotView(&DeviceSnapshot{Certs: []DeviceCert{a}, Served: &other}, now)
+	if served == nil || rows[0].GRPC {
+		t.Fatalf("unlisted served cert must show separately: rows=%+v served=%+v", rows, served)
+	}
+}
+
 func TestTimeLeft(t *testing.T) {
 	now := time.Now()
 	for want, when := range map[string]time.Time{

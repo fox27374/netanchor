@@ -181,6 +181,7 @@ func timeLeft(notAfter, now time.Time) string {
 type deviceCertRow struct {
 	DeviceCert
 	Class, Left string
+	GRPC        bool // the certificate the gRPC port presents
 }
 
 func newDeviceCertRow(c DeviceCert, now time.Time) deviceCertRow {
@@ -193,10 +194,15 @@ func deviceSnapshotView(snap *DeviceSnapshot, now time.Time) (rows []deviceCertR
 	if snap == nil {
 		return nil, nil
 	}
+	matched := false
 	for _, c := range snap.Certs {
-		rows = append(rows, newDeviceCertRow(c, now))
+		row := newDeviceCertRow(c, now)
+		if snap.Served != nil && c.Fingerprint != "" && c.Fingerprint == snap.Served.Fingerprint {
+			row.GRPC, matched = true, true
+		}
+		rows = append(rows, row)
 	}
-	if snap.Served != nil {
+	if snap.Served != nil && !matched { // only shown separately when the device does not list it
 		row := newDeviceCertRow(*snap.Served, now)
 		served = &row
 	}
