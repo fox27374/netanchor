@@ -191,6 +191,9 @@ func newGNOITestEnv(t *testing.T, dev *fakeGNOIDevice) *gnoiTestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.loadOrCreateDeviceKey(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := CreateCA(st, CAParams{CommonName: "root", Algo: algoECP256, ValidDays: 1000}); err != nil {
 		t.Fatal(err)
 	}

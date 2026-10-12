@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ func TestDeviceBackupRoundTripAndKeyMismatch(t *testing.T) {
 	s, _ := backupFixture(t)
 	key := []byte(testDeviceKeyBytes)
 	s.deviceKey = key
+	backupCheck(t, durableWrite(s.deviceKeyPath(), key))
 	blob, err := s.sealCredentials(deviceCreds{Username: "admin", Password: "device password"})
 	backupCheck(t, err)
 	d := Device{
@@ -32,7 +34,12 @@ func TestDeviceBackupRoundTripAndKeyMismatch(t *testing.T) {
 
 	stage, err := stageBackup(t.TempDir(), opened, false)
 	backupCheck(t, err)
-	dropped, err := dropUndecryptableCredentials(stage, key)
+	stagedKey, err := os.ReadFile(filepath.Join(stage, "auth", "device.key"))
+	backupCheck(t, err)
+	if !bytes.Equal(stagedKey, key) {
+		t.Fatal("restore did not carry the device key")
+	}
+	dropped, err := dropUndecryptableCredentials(stage, stagedKey)
 	backupCheck(t, err)
 	if len(dropped) != 0 {
 		t.Fatalf("same key dropped credentials of %v", dropped)
@@ -48,7 +55,7 @@ func TestDeviceBackupRoundTripAndKeyMismatch(t *testing.T) {
 		t.Fatal("restored credentials do not match")
 	}
 
-	for name, otherKey := range map[string][]byte{"no key": nil, "other key": []byte("ffffffffffffffffffffffffffffffff")} {
+	for name, otherKey := range map[string][]byte{"other key": []byte("ffffffffffffffffffffffffffffffff")} {
 		stage, err := stageBackup(t.TempDir(), opened, false)
 		backupCheck(t, err)
 		dropped, err := dropUndecryptableCredentials(stage, otherKey)

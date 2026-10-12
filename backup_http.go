@@ -246,7 +246,19 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(stage)
-	droppedCreds, err := dropUndecryptableCredentials(stage, s.store.deviceKey)
+	// The restored instance uses the staged device key. A backup made before
+	// device.key existed keeps this instance's key.
+	keyPath := filepath.Join(stage, "auth", "device.key")
+	key, err := os.ReadFile(keyPath)
+	if os.IsNotExist(err) {
+		key = s.store.deviceKey
+		err = durableWrite(keyPath, key)
+	}
+	if err != nil {
+		http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
+		return
+	}
+	droppedCreds, err := dropUndecryptableCredentials(stage, key)
 	if err != nil {
 		http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
 		return
@@ -285,7 +297,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		for i, n := range droppedCreds {
 			names[i] = html.EscapeString(n)
 		}
-		warning = `<p><strong>Warning:</strong> the device key file does not decrypt the stored credentials of these devices, so their usernames and passwords were dropped. The devices were kept. Re-enter their credentials: ` + strings.Join(names, ", ") + `.</p>`
+		warning = `<p><strong>Warning:</strong> the device key does not decrypt the stored credentials of these devices, so their usernames and passwords were dropped. The devices were kept. Re-enter their credentials: ` + strings.Join(names, ", ") + `.</p>`
 	}
 	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Restore complete</title><h1>Restore complete — restart required</h1><p>All instance data was replaced. Browser sessions and unused SCEP challenges were invalidated.</p>`+warning+`<p>NetAnchor is shutting down now. A container with restart: unless-stopped restarts automatically. If running a standalone binary, start it again manually.</p><p>After restart, <a href="/login">sign in with an account from the backup</a>. Your temporary account has been replaced. The HTTPS identity may have changed; verify it before accepting any browser warning. SCEP needs unlock unless a matching startup secret is configured.</p></html>`)
 }

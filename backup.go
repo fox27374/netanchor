@@ -98,7 +98,7 @@ func backupPath(p string) bool {
 	case "index.json", "templates.json", "scep.json", "devices.json", "definitions.json":
 		return len(v) == 1
 	case "auth":
-		return len(v) == 2 && (v[1] == "users.json" || v[1] == "session.key")
+		return len(v) == 2 && (v[1] == "users.json" || v[1] == "session.key" || v[1] == "device.key")
 	case "tls":
 		return len(v) == 2 && (v[1] == "server-cert.pem" || v[1] == "server-key.pem")
 	case "cas":

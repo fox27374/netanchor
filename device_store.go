@@ -20,7 +20,6 @@ const deviceKeySize = 32
 var (
 	errDeviceNameTaken      = errors.New("a device with this name already exists")
 	errDeviceNotFound       = errors.New("device not found")
-	errCredentialsDisabled  = errors.New("credentials are not stored: NETANCHOR_DEVICE_KEY_FILE is not set")
 	errCredentialsMalformed = errors.New("stored credentials are malformed")
 )
 
@@ -71,32 +70,36 @@ type deviceCreds struct {
 	Password string `json:"password"`
 }
 
-func (s *Store) devicesPath() string { return filepath.Join(s.dir, "devices.json") }
+func (s *Store) devicesPath() string   { return filepath.Join(s.dir, "devices.json") }
+func (s *Store) deviceKeyPath() string { return filepath.Join(s.dir, "auth", "device.key") }
 
-// LoadDeviceKey reads the credential key from path. An empty path leaves
-// credential storage off. The file must hold exactly 32 random bytes.
-func (s *Store) LoadDeviceKey(path string) error {
-	if path == "" {
+// loadOrCreateDeviceKey loads <data>/auth/device.key, creating it with 32 random
+// bytes on first start. An existing file of any other length is an error:
+// replacing it would make the stored credentials undecryptable.
+func (s *Store) loadOrCreateDeviceKey() error {
+	b, err := os.ReadFile(s.deviceKeyPath())
+	if err == nil {
+		if len(b) != deviceKeySize {
+			return fmt.Errorf("%s must contain exactly %d bytes", s.deviceKeyPath(), deviceKeySize)
+		}
+		s.deviceKey = b
 		return nil
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading device key file: %w", err)
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if len(b) != deviceKeySize {
-		return fmt.Errorf("device key file must contain exactly %d random bytes (for example: head -c 32 /dev/urandom > key)", deviceKeySize)
+	key := make([]byte, deviceKeySize)
+	if _, err := rand.Read(key); err != nil {
+		return err
 	}
-	s.deviceKey = b
+	if err := durableWrite(s.deviceKeyPath(), key); err != nil {
+		return err
+	}
+	s.deviceKey = key
 	return nil
 }
 
-// CredentialsAvailable reports whether a device key is loaded.
-func (s *Store) CredentialsAvailable() bool { return s.deviceKey != nil }
-
 func (s *Store) deviceGCM() (cipher.AEAD, error) {
-	if s.deviceKey == nil {
-		return nil, errCredentialsDisabled
-	}
 	block, err := aes.NewCipher(s.deviceKey)
 	if err != nil {
 		return nil, err

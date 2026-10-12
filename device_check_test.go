@@ -16,7 +16,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,13 +46,6 @@ func deviceForEnv(t *testing.T, env *gnoiTestEnv, withCreds bool) Device {
 	port, _ := strconv.Atoi(portStr)
 	dev := Device{Name: "lab-" + portStr, ManagementIP: host, Port: port, Platform: devicePlatformIOSXE, Verify: gnoiVerifyFingerprint, Pin: env.fp}
 	if withCreds {
-		key := filepath.Join(t.TempDir(), "device.key")
-		if err := os.WriteFile(key, []byte(testDeviceKeyBytes), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := env.store.LoadDeviceKey(key); err != nil {
-			t.Fatal(err)
-		}
 		dev.Credentials, err = env.store.sealCredentials(deviceCreds{Username: testDevUser, Password: testDevPass})
 		if err != nil {
 			t.Fatal(err)

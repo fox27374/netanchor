@@ -207,7 +207,7 @@ func (s *Server) handleDeviceCheck(w http.ResponseWriter, r *http.Request, refre
 	}
 	creds, err := s.deviceCheckCreds(dev, r.PostForm)
 	if err != nil {
-		s.renderDeviceDetail(w, r, dev, nil, err.Error())
+		s.renderDeviceDetail(w, r, dev, &deviceCheckResult{Outcome: err.Error(), Class: "err"}, "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), gnoiPushTimeout)

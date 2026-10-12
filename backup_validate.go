@@ -69,6 +69,11 @@ func validateBackup(dir string) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if b, err := os.ReadFile(s.deviceKeyPath()); err == nil && len(b) != deviceKeySize {
+		return errors.New("invalid device credential key")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	certPEM, ce := os.ReadFile(s.tlsCertPath())
 	keyPEM, ke := os.ReadFile(s.tlsKeyPath())
 	if !errors.Is(ce, os.ErrNotExist) || !errors.Is(ke, os.ErrNotExist) {

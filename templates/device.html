@@ -3,9 +3,7 @@
 {{$v := .Data}}
 <h2>{{if $v.Editing}}Edit device{{else}}Add device{{end}}</h2>
 
-{{if $v.Info}}<p class="muted" role="status">{{$v.Info}}</p>{{end}}
-
-<form method="post" action="/devices/save">
+<form method="post" action="/devices/save#save-result">
   <input type="hidden" name="csrf" value="{{$v.CSRF}}">
   <input type="hidden" name="id" value="{{$v.ID}}">
 <div class="panel">
@@ -29,7 +27,7 @@
   <textarea id="notes" name="notes">{{$v.Notes}}</textarea>
 </div>
 
-<div class="panel">
+<div class="panel" id="verification">
   <h3>Server verification</h3>
   <label for="verify">How to verify the device's gRPC server certificate</label>
   <select id="verify" name="verify">
@@ -48,7 +46,9 @@
   <input type="hidden" name="probed_target" value="{{$v.ProbedTarget}}">
   <input type="hidden" name="probed_fingerprint" value="{{$v.ProbedFingerprint}}">
   <div style="margin-top:12px">
-    <button class="btn secondary" type="submit" formaction="/devices/probe" formnovalidate>Fetch fingerprint</button>
+    <button class="btn secondary" type="submit" formaction="/devices/probe#verification" formnovalidate>Fetch fingerprint</button>
+    {{if $v.ProbeError}}<div class="alert err" role="alert">{{$v.ProbeError}}</div>{{end}}
+    {{if $v.Info}}<p class="muted" role="status">{{$v.Info}}</p>{{end}}
     <p class="muted" style="font-size:12px">Connects only to read the device's server certificate. It sends no credentials. Compare the fingerprint with the device before you save. Changing the address or port needs a new fingerprint.</p>
   </div>
   <label style="margin-top:12px"><input type="checkbox" name="unverified_ack" value="on" {{if $v.UnverifiedAck}}checked{{end}}> I accept that, in unverified mode, the device password can be read by anyone on the path.</label>
@@ -56,19 +56,28 @@
 
 <div class="panel">
   <h3>Credentials</h3>
-  {{if not $v.KeyAvailable}}
-  <p class="muted">Credential storage is off. Set <code>NETANCHOR_DEVICE_KEY_FILE</code> to a file with 32 random bytes and restart NetAnchor. Until then, usernames and passwords cannot be stored.</p>
-  {{end}}
   <div class="form-grid">
-    <div><label for="username">Device username</label><input id="username" name="username" autocomplete="off" {{if not $v.KeyAvailable}}disabled{{end}} value="{{$v.Username}}"></div>
-    <div><label for="password">Device password</label><input id="password" name="password" type="password" autocomplete="new-password" {{if not $v.KeyAvailable}}disabled{{end}} placeholder="{{if $v.Stored}}stored, leave empty to keep{{end}}"></div>
+    <div><label for="username">Device username</label><input id="username" name="username" autocomplete="off" value="{{$v.Username}}" {{if not $v.Editing}}required{{end}}></div>
+    <div><label for="password">Device password</label><input id="password" name="password" type="password" autocomplete="new-password" placeholder="{{if $v.Stored}}stored, leave empty to keep{{end}}" {{if not $v.Editing}}required{{end}}></div>
   </div>
   {{if $v.Stored}}
   <label style="margin-top:12px"><input type="checkbox" name="remove_credentials" value="on"> Remove the stored credentials</label>
   {{end}}
 </div>
 
-<div class="panel">
+<div class="panel" id="save-result">
+  {{if $v.Check}}
+  <h3>Connection test</h3>
+  <div class="alert {{$v.Check.Class}}" role="status">{{$v.Check.Outcome}}</div>
+  {{if $v.Check.Steps}}
+  <table>
+    <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>{{range $v.Check.Steps}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+  <p class="muted">The device was not saved. Correct the values and save again.</p>
+  {{end}}
+  {{if not $v.Editing}}<p class="muted" style="font-size:12px">Adding a device tests the connection first. The device is saved only if the test succeeds, and its certificates are read then.</p>{{end}}
   <button class="btn" type="submit">Save device</button>
 </div>
 </form>
@@ -96,10 +105,10 @@
 </div>
 
 {{if .IsAdmin}}
-<div class="panel">
+<div class="panel" id="live-check">
   <h3>Live check</h3>
   <p class="muted" style="font-size:12px">Connects to the device over gNOI with the verification above. Nothing on the device changes.</p>
-  <form method="post" action="/devices/{{$d.ID}}/test">
+  <form method="post" action="/devices/{{$d.ID}}/test#live-check">
     <input type="hidden" name="csrf" value="{{$v.CSRF}}">
     {{if not $v.Stored}}
     <div class="form-grid">
@@ -109,7 +118,7 @@
     <p class="muted" style="font-size:12px">No credentials are stored for this device, so they are used once and not kept.</p>
     {{end}}
     <button class="btn secondary" type="submit">Test connection</button>
-    <button class="btn secondary" type="submit" formaction="/devices/{{$d.ID}}/refresh">Refresh certificates</button>
+    <button class="btn secondary" type="submit" formaction="/devices/{{$d.ID}}/refresh#live-check">Refresh certificates</button>
   </form>
 </div>
 {{if $v.Check}}

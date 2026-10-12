@@ -14,22 +14,21 @@ import (
 
 // pushPage is the data for templates/push.html.
 type pushPage struct {
-	Defs         []CertDefinition
-	Devices      []pushDeviceRow
-	Site, Tag    string
-	Definition   string // selected definition id
-	Username     string // echoed; never the password or CA passphrase
-	NeedCreds    bool   // a listed device has no stored credentials, so the form asks for them
-	KeyAvailable bool
-	Results      []devicePushResult
-	Outcome      string // summary after a push
-	Class        string // alert class for Outcome: ok, warn or err
-	CSRF         string
+	Defs       []CertDefinition
+	Devices    []pushDeviceRow
+	Definition string // selected definition id
+	Username   string // echoed; never the password or CA passphrase
+	NeedCreds  bool   // a listed device has no stored credentials, so the form asks for them
+	Results    []devicePushResult
+	Outcome    string // summary after a push
+	Class      string // alert class for Outcome: ok, warn or err
+	CSRF       string
 }
 
 // pushDeviceRow is one device in the selection list.
 type pushDeviceRow struct {
 	ID, Name, Site, Address, Verify string
+	Tags                            string // comma separated, for the client-side filter
 	Stored, Selected                bool
 }
 
@@ -59,7 +58,6 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := pushPage{
-		Site: strings.TrimSpace(r.Form.Get("site")), Tag: strings.TrimSpace(r.Form.Get("tag")),
 		Definition: r.Form.Get("definition"), Username: strings.TrimSpace(r.Form.Get("username")),
 	}
 	if r.Method == http.MethodPost {
@@ -86,38 +84,18 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		selected[id] = true
 	}
 	for _, dev := range devs {
-		if !pushMatches(dev, page.Site, page.Tag) {
-			continue
-		}
 		page.Devices = append(page.Devices, pushDeviceRow{
 			ID: dev.ID, Name: dev.Name, Site: dev.Site, Address: net.JoinHostPort(dev.ManagementIP, strconv.Itoa(dev.Port)),
-			Verify: dev.Verify, Stored: dev.Credentials != nil, Selected: selected[dev.ID],
+			Verify: dev.Verify, Tags: strings.Join(dev.Tags, ", "), Stored: dev.Credentials != nil, Selected: selected[dev.ID],
 		})
 		if dev.Credentials == nil {
 			page.NeedCreds = true
 		}
 	}
 	page.Defs = defs
-	page.KeyAvailable = s.store.CredentialsAvailable()
 	page.CSRF = s.backupToken(r)
 	d.Data = page
 	s.render(w, "push", d)
-}
-
-// pushMatches applies the site and tag filters of the selection list.
-func pushMatches(dev Device, site, tag string) bool {
-	if site != "" && !strings.EqualFold(dev.Site, site) {
-		return false
-	}
-	if tag == "" {
-		return true
-	}
-	for _, t := range dev.Tags {
-		if strings.EqualFold(t, tag) {
-			return true
-		}
-	}
-	return false
 }
 
 // pushFromForm validates the posted selection and pushes the definition to each

@@ -52,8 +52,8 @@ func main() {
 		log.Fatalf("opening store: %v", err)
 	}
 
-	if err := store.LoadDeviceKey(os.Getenv("NETANCHOR_DEVICE_KEY_FILE")); err != nil {
-		log.Fatalf("NETANCHOR_DEVICE_KEY_FILE: %v", err)
+	if err := store.loadOrCreateDeviceKey(); err != nil {
+		log.Fatalf("device credential key: %v", err)
 	}
 
 	authEnabled := !envBool("NETANCHOR_DISABLE_AUTH")
