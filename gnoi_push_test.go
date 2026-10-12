@@ -62,7 +62,7 @@ func testDevice(t *testing.T, target, name, pin string) Device {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Device{Name: name, ManagementIP: host, Port: p, Platform: "IOS-XE", Pin: pin}
+	return Device{Name: name, FQDN: name + ".example.net", ManagementIP: host, Port: p, Platform: "IOS-XE", Pin: pin}
 }
 
 // testDefinition saves the definition the push tests use.
@@ -72,7 +72,8 @@ func testDefinition(t *testing.T, st *Store) (CertDefinition, CertTemplate) {
 	if !ok {
 		t.Fatal("missing builtin profile")
 	}
-	def := CertDefinition{Name: "switch-tls", CAID: caRoot, Profile: tpl.Name, Country: "NL", State: "Zuid-Holland", Organization: "Example", ValidDays: tpl.ValidDays, CertID: "netanchor-switch"}
+	def := CertDefinition{Name: "switch-tls", CAID: caRoot, Profile: tpl.Name, Country: "NL", State: "Zuid-Holland", Organization: "Example", ValidDays: tpl.ValidDays, CertID: "netanchor-switch",
+		CommonName: "{{ fqdn }}", DNSSANs: []string{"{{ fqdn }}"}, IPSANs: []string{"{{ ip }}"}}
 	if err := st.SaveDefinition(&def); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,8 @@ func TestPushDeviceCertificateSANsAndSubject(t *testing.T) {
 	dev := &fakeGNOIDevice{}
 	e := newGNOITestEnv(t, dev)
 	def, tpl := testDefinition(t, e.store)
-	def.ExtraSANs = []string{"alt.example.net", "192.0.2.99"}
+	def.DNSSANs = []string{"{{ fqdn }}", "alt.example.net"}
+	def.IPSANs = []string{"{{ ip }}", "192.0.2.99"}
 	if err := e.store.SaveDefinition(&def); err != nil {
 		t.Fatal(err)
 	}
@@ -334,11 +336,11 @@ func TestPushPageKeepsOriginForSameSitePosts(t *testing.T) {
 	}
 }
 
-func TestPushUsesDeviceNameAsCNWhenDefinitionSaysSo(t *testing.T) {
+func TestPushUsesTemplatedCommonName(t *testing.T) {
 	dev := &fakeGNOIDevice{}
 	e := newGNOITestEnv(t, dev)
 	def, tpl := testDefinition(t, e.store)
-	def.CNSource = definitionCNName
+	def.CommonName = "sw-{{ name }}.example.org"
 	if err := e.store.SaveDefinition(&def); err != nil {
 		t.Fatal(err)
 	}
@@ -354,10 +356,10 @@ func TestPushUsesDeviceNameAsCNWhenDefinitionSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cert.Subject.CommonName != "switch" {
-		t.Fatalf("CN %q, want the device name", cert.Subject.CommonName)
+	if cert.Subject.CommonName != "sw-switch.example.org" {
+		t.Fatalf("CN %q, want the templated name", cert.Subject.CommonName)
 	}
-	if len(cert.DNSNames) == 0 || cert.DNSNames[0] != "switch.example.net" || len(cert.IPAddresses) == 0 || !cert.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")) {
-		t.Fatalf("SANs dns=%v ip=%v, want the FQDN and management IP", cert.DNSNames, cert.IPAddresses)
+	if strings.Join(cert.DNSNames, ",") != "switch.example.net" || len(cert.IPAddresses) != 1 || !cert.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")) {
+		t.Fatalf("SANs dns=%v ip=%v, want the FQDN and management IP from the default templates", cert.DNSNames, cert.IPAddresses)
 	}
 }

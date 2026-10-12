@@ -15,27 +15,33 @@ var (
 	errDefinitionNotFound  = errors.New("definition not found")
 )
 
-// CertDefinition says how device certificates look. A push (next phase) uses it
-// with a device to build the signing request.
+// CertDefinition says how device certificates look. A push uses it with a device
+// to build the signing request. CommonName and the SAN lists are templates: see
+// definition_template.go for the placeholders.
 type CertDefinition struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	CAID         string    `json:"ca_id"`
-	Profile      string    `json:"profile"` // certificate template name
-	Country      string    `json:"country"`
-	State        string    `json:"state"`
-	Organization string    `json:"organization"`
-	City         string    `json:"city,omitempty"`
-	OU           string    `json:"ou,omitempty"`
-	ValidDays    int       `json:"valid_days"`
-	CertID       string    `json:"cert_id"`
-	ExtraSANs    []string  `json:"extra_sans,omitempty"` // fixed DNS or IP SANs added to every push
-	CNSource     string    `json:"cn_source,omitempty"`  // "name" or "fqdn" (default): which device field becomes the CN
-	Created      time.Time `json:"created"`
-	Updated      time.Time `json:"updated"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	CAID         string   `json:"ca_id"`
+	Profile      string   `json:"profile"` // certificate template name
+	Country      string   `json:"country"`
+	State        string   `json:"state"`
+	Organization string   `json:"organization"`
+	City         string   `json:"city,omitempty"`
+	OU           string   `json:"ou,omitempty"`
+	ValidDays    int      `json:"valid_days"`
+	CertID       string   `json:"cert_id"`
+	CommonName   string   `json:"common_name"`
+	DNSSANs      []string `json:"dns_sans,omitempty"`
+	IPSANs       []string `json:"ip_sans,omitempty"`
+	// ExtraSANs and CNSource are the pre-template fields. They are read only to
+	// migrate old records (migrateLegacyDefinition) and are never written again.
+	ExtraSANs []string  `json:"extra_sans,omitempty"`
+	CNSource  string    `json:"cn_source,omitempty"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
 }
 
-// CNSource values. Empty means FQDN, the behaviour before the setting existed.
+// Legacy CNSource values, used only by migrateLegacyDefinition.
 const (
 	definitionCNName = "name"
 	definitionCNFQDN = "fqdn"
@@ -53,6 +59,9 @@ func (s *Store) loadDefinitions() ([]CertDefinition, error) {
 	}
 	var defs []CertDefinition
 	err = json.Unmarshal(b, &defs)
+	for i := range defs {
+		migrateLegacyDefinition(&defs[i])
+	}
 	return defs, err
 }
 

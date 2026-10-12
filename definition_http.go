@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,9 +11,9 @@ import (
 
 // definitionForm is the add/edit form. It echoes posted values as typed.
 type definitionForm struct {
-	ID, Name, CAID, Profile                string
-	Country, State, Organization, City, OU string
-	ValidDays, CertID, ExtraSANs, CNSource string
+	ID, Name, CAID, Profile                        string
+	Country, State, Organization, City, OU         string
+	ValidDays, CertID, CommonName, DNSSANs, IPSANs string
 }
 
 type definitionListPage struct {
@@ -58,7 +57,7 @@ func (s *Server) handleDefinitionNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "administrator required", http.StatusForbidden)
 		return
 	}
-	s.renderDefinitionForm(w, r, definitionForm{ValidDays: "365"}, "")
+	s.renderDefinitionForm(w, r, definitionForm{ValidDays: "365", CommonName: "{{ fqdn }}", DNSSANs: "{{ fqdn }}", IPSANs: "{{ ip }}"}, "")
 }
 
 func (s *Server) handleDefinitionEdit(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +77,8 @@ func (s *Server) handleDefinitionEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderDefinitionForm(w, r, definitionForm{
 		ID: def.ID, Name: def.Name, CAID: def.CAID, Profile: def.Profile,
 		Country: def.Country, State: def.State, Organization: def.Organization, City: def.City, OU: def.OU,
-		ValidDays: strconv.Itoa(def.ValidDays), CertID: def.CertID, ExtraSANs: strings.Join(def.ExtraSANs, ", "), CNSource: def.CNSource,
+		ValidDays: strconv.Itoa(def.ValidDays), CertID: def.CertID,
+		CommonName: def.CommonName, DNSSANs: strings.Join(def.DNSSANs, ", "), IPSANs: strings.Join(def.IPSANs, ", "),
 	}, "")
 }
 
@@ -113,7 +113,7 @@ func (s *Server) handleDefinitionSave(w http.ResponseWriter, r *http.Request) {
 		ID: strings.TrimSpace(p.Get("id")), Name: strings.TrimSpace(p.Get("name")), CAID: p.Get("ca"), Profile: strings.TrimSpace(p.Get("profile")),
 		Country: strings.TrimSpace(p.Get("country")), State: strings.TrimSpace(p.Get("state")), Organization: strings.TrimSpace(p.Get("organization")),
 		City: strings.TrimSpace(p.Get("city")), OU: strings.TrimSpace(p.Get("ou")),
-		ValidDays: strings.TrimSpace(p.Get("valid_days")), CertID: strings.TrimSpace(p.Get("cert_id")), ExtraSANs: p.Get("extra_sans"), CNSource: p.Get("cn_source"),
+		ValidDays: strings.TrimSpace(p.Get("valid_days")), CertID: strings.TrimSpace(p.Get("cert_id")), CommonName: strings.TrimSpace(p.Get("common_name")), DNSSANs: p.Get("dns_sans"), IPSANs: p.Get("ip_sans"),
 	}
 	def, err := s.definitionFromForm(f)
 	if err == nil {
@@ -164,23 +164,29 @@ func (s *Server) definitionFromForm(f definitionForm) (CertDefinition, error) {
 	if !validCertID(certID) {
 		return def, errors.New("certificate id must be 1-64 letters, digits, '.', '-' or '_'")
 	}
-	var extra []string
-	for _, san := range strings.Split(f.ExtraSANs, ",") {
-		if san = strings.TrimSpace(san); san == "" {
-			continue
-		}
-		if net.ParseIP(san) == nil && !validDNSName(san) {
-			return def, fmt.Errorf("extra SAN %q is not a valid DNS name or IP address", san)
-		}
-		extra = append(extra, san)
+	dns, ips := splitSANList(f.DNSSANs), splitSANList(f.IPSANs)
+	if len(dns) > 64 || len(ips) > 64 {
+		return def, errors.New("at most 64 DNS SANs and 64 IP SANs")
+	}
+	if err := checkDefinitionTemplates(f.CommonName, dns, ips); err != nil {
+		return def, err
 	}
 	def.Name, def.CAID, def.Profile = f.Name, f.CAID, t.Name
 	def.Country, def.State, def.Organization, def.City, def.OU = f.Country, f.State, f.Organization, f.City, f.OU
-	if f.CNSource != "" && f.CNSource != definitionCNName && f.CNSource != definitionCNFQDN {
-		return def, errors.New("choose the device name or FQDN as the common name")
-	}
-	def.ValidDays, def.CertID, def.ExtraSANs, def.CNSource = days, certID, extra, f.CNSource
+	def.ValidDays, def.CertID = days, certID
+	def.CommonName, def.DNSSANs, def.IPSANs = f.CommonName, dns, ips
 	return def, nil
+}
+
+// splitSANList splits a comma separated form value, dropping blank entries.
+func splitSANList(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // validDNSName accepts dot-separated labels of letters, digits and hyphens.
