@@ -348,6 +348,20 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 			}
 		})
 	}
+	// AES-256-CBC envelopes are accepted as well as AES-128-CBC.
+	pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES256CBC
+	{
+		g := newSCEPFixture(t)
+		c := g.csr(t, g.challenge(t), nil)
+		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.e.cert})
+		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, s := g.e.enroll(g.signedEnvelope(t, e, pkcs7.OIDDigestAlgorithmSHA256, false, scep.PKCSReq)); s != 200 {
+			t.Fatalf("AES-256-CBC envelope refused, status %d", s)
+		}
+	}
 	for _, digest := range []asn1.ObjectIdentifier{pkcs7.OIDDigestAlgorithmSHA384, pkcs7.OIDDigestAlgorithmSHA512} {
 		g := newSCEPFixture(t)
 		c := g.csr(t, g.challenge(t), nil)
@@ -360,7 +374,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 		}
 	}
 	// Tests are deliberately nonparallel: library encryption defaults are global.
-	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES256CBC, pkcs7.EncryptionAlgorithmAES128GCM} {
+	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES128GCM} {
 		pkcs7.ContentEncryptionAlgorithm = alg
 		legacy, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.e.cert})
 		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC

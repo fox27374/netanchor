@@ -74,8 +74,15 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 		return env, err
 	}
 	c := env.Content
-	if len(env.Recipients) != 1 || !c.Type.Equal(pkcs7.OIDData) || !c.Algorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmAES128CBC) || c.Ciphertext.IsCompound || len(c.Ciphertext.Bytes) == 0 || len(c.Ciphertext.Bytes)%aes.BlockSize != 0 || c.Algorithm.Parameters.Tag != asn1.TagOctetString || len(c.Algorithm.Parameters.Bytes) != aes.BlockSize {
-		return env, errSCEPRequest
+	switch {
+	case len(env.Recipients) != 1:
+		return env, fmt.Errorf("%w: envelope has %d recipients, want 1", errSCEPRequest, len(env.Recipients))
+	case !c.Type.Equal(pkcs7.OIDData):
+		return env, fmt.Errorf("%w: envelope content type %v", errSCEPRequest, c.Type)
+	case scepContentKeyLen(c.Algorithm.Algorithm) == 0:
+		return env, fmt.Errorf("%w: envelope cipher %v not allowed (AES-128-CBC or AES-256-CBC only)", errSCEPRequest, c.Algorithm.Algorithm)
+	case c.Ciphertext.IsCompound || len(c.Ciphertext.Bytes) == 0 || len(c.Ciphertext.Bytes)%aes.BlockSize != 0 || c.Algorithm.Parameters.Tag != asn1.TagOctetString || len(c.Algorithm.Parameters.Bytes) != aes.BlockSize:
+		return env, fmt.Errorf("%w: envelope ciphertext or IV malformed", errSCEPRequest)
 	}
 	var recipient struct {
 		Version   int
@@ -83,15 +90,29 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 		Algorithm pkix.AlgorithmIdentifier
 		Key       []byte
 	}
-	if strictASN1(env.Recipients[0].FullBytes, &recipient) != nil || !recipient.Algorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmRSA) {
-		return env, errSCEPRequest
+	if err := strictASN1(env.Recipients[0].FullBytes, &recipient); err != nil {
+		return env, fmt.Errorf("%w: envelope recipient malformed", errSCEPRequest)
+	}
+	if !recipient.Algorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmRSA) {
+		return env, fmt.Errorf("%w: envelope key transport %v not allowed (RSA PKCS#1 v1.5 only)", errSCEPRequest, recipient.Algorithm.Algorithm)
 	}
 	return env, nil
 }
 
+// scepContentKeyLen is the AES key length of an allowed envelope cipher, 0 if not allowed.
+func scepContentKeyLen(oid asn1.ObjectIdentifier) int {
+	switch {
+	case oid.Equal(pkcs7.OIDEncryptionAlgorithmAES128CBC):
+		return 16
+	case oid.Equal(pkcs7.OIDEncryptionAlgorithmAES256CBC):
+		return 32
+	}
+	return 0
+}
+
 // pkcs7 v0.2.1 slices padding before checking its length. Validate the actual
 // plaintext padding before allowing that library path to run. This adapter also
-// enforces a 128-bit key (AES's constructor alone accepts 192/256-bit keys).
+// enforces the key length of the envelope's cipher (AES's constructor alone accepts any).
 type scepDecrypter struct {
 	key *rsa.PrivateKey
 	env scepEnvelope
@@ -100,7 +121,7 @@ type scepDecrypter struct {
 func (d scepDecrypter) Public() crypto.PublicKey { return d.key.Public() }
 func (d scepDecrypter) Decrypt(r io.Reader, encrypted []byte, opts crypto.DecrypterOpts) ([]byte, error) {
 	k, err := d.key.Decrypt(r, encrypted, opts)
-	if err != nil || len(k) != 16 {
+	if err != nil || len(k) != scepContentKeyLen(d.env.Content.Algorithm.Algorithm) {
 		return nil, errSCEPRequest
 	}
 	b, err := aes.NewCipher(k)
@@ -208,7 +229,7 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 	}
 	env, err := inspectEnvelope(p.Content)
 	if err != nil {
-		return bad("envelope must be AES-128-CBC to the SCEP CA's RSA key")
+		return nil, nil, err
 	}
 	if err = msg.DecryptPKIEnvelope(cert, scepDecrypter{key, env}); err != nil {
 		return bad("decrypt envelope: %v", err)
