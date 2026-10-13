@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/des"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -79,9 +80,9 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 		return env, fmt.Errorf("%w: envelope has %d recipients, want 1", errSCEPRequest, len(env.Recipients))
 	case !c.Type.Equal(pkcs7.OIDData):
 		return env, fmt.Errorf("%w: envelope content type %v", errSCEPRequest, c.Type)
-	case scepContentKeyLen(c.Algorithm.Algorithm) == 0:
-		return env, fmt.Errorf("%w: envelope cipher %v not allowed (AES-128-CBC or AES-256-CBC only)", errSCEPRequest, c.Algorithm.Algorithm)
-	case c.Ciphertext.IsCompound || len(c.Ciphertext.Bytes) == 0 || len(c.Ciphertext.Bytes)%aes.BlockSize != 0 || c.Algorithm.Parameters.Tag != asn1.TagOctetString || len(c.Algorithm.Parameters.Bytes) != aes.BlockSize:
+	case scepCipherSizes(c.Algorithm.Algorithm) == [2]int{}:
+		return env, fmt.Errorf("%w: envelope cipher %v not allowed (AES-128-CBC, AES-256-CBC or 3DES-CBC only)", errSCEPRequest, c.Algorithm.Algorithm)
+	case c.Ciphertext.IsCompound || len(c.Ciphertext.Bytes) == 0 || len(c.Ciphertext.Bytes)%scepCipherSizes(c.Algorithm.Algorithm)[1] != 0 || c.Algorithm.Parameters.Tag != asn1.TagOctetString || len(c.Algorithm.Parameters.Bytes) != scepCipherSizes(c.Algorithm.Algorithm)[1]:
 		return env, fmt.Errorf("%w: envelope ciphertext or IV malformed", errSCEPRequest)
 	}
 	var recipient struct {
@@ -99,15 +100,19 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 	return env, nil
 }
 
-// scepContentKeyLen is the AES key length of an allowed envelope cipher, 0 if not allowed.
-func scepContentKeyLen(oid asn1.ObjectIdentifier) int {
+// scepCipherSizes returns the key and block size of an allowed envelope cipher, or
+// zeros. 3DES is accepted only because IOS-XE encrypts with it (or single DES, which
+// stays refused) instead of AES; see README.
+func scepCipherSizes(oid asn1.ObjectIdentifier) [2]int {
 	switch {
 	case oid.Equal(pkcs7.OIDEncryptionAlgorithmAES128CBC):
-		return 16
+		return [2]int{16, aes.BlockSize}
 	case oid.Equal(pkcs7.OIDEncryptionAlgorithmAES256CBC):
-		return 32
+		return [2]int{32, aes.BlockSize}
+	case oid.Equal(pkcs7.OIDEncryptionAlgorithmDESEDE3CBC):
+		return [2]int{24, des.BlockSize}
 	}
-	return 0
+	return [2]int{}
 }
 
 // pkcs7 v0.2.1 slices padding before checking its length. Validate the actual
@@ -120,18 +125,25 @@ type scepDecrypter struct {
 
 func (d scepDecrypter) Public() crypto.PublicKey { return d.key.Public() }
 func (d scepDecrypter) Decrypt(r io.Reader, encrypted []byte, opts crypto.DecrypterOpts) ([]byte, error) {
+	alg := d.env.Content.Algorithm.Algorithm
+	sizes := scepCipherSizes(alg)
 	k, err := d.key.Decrypt(r, encrypted, opts)
-	if err != nil || len(k) != scepContentKeyLen(d.env.Content.Algorithm.Algorithm) {
+	if err != nil || len(k) != sizes[0] {
 		return nil, errSCEPRequest
 	}
-	b, err := aes.NewCipher(k)
+	var b cipher.Block
+	if alg.Equal(pkcs7.OIDEncryptionAlgorithmDESEDE3CBC) {
+		b, err = des.NewTripleDESCipher(k)
+	} else {
+		b, err = aes.NewCipher(k)
+	}
 	if err != nil {
 		return nil, errSCEPRequest
 	}
 	plain := make([]byte, len(d.env.Content.Ciphertext.Bytes))
 	cipher.NewCBCDecrypter(b, d.env.Content.Algorithm.Parameters.Bytes).CryptBlocks(plain, d.env.Content.Ciphertext.Bytes)
 	n := int(plain[len(plain)-1])
-	if n < 1 || n > aes.BlockSize || n > len(plain) {
+	if n < 1 || n > sizes[1] || n > len(plain) {
 		return nil, errSCEPRequest
 	}
 	for _, v := range plain[len(plain)-n:] {
@@ -466,7 +478,7 @@ func (e *SCEPService) Routes() http.Handler {
 		switch op {
 		case "GetCACaps":
 			w.Header().Set("Content-Type", "text/plain")
-			io.WriteString(w, "AES\nSHA-256\nSHA-512\nPOSTPKIOperation\n")
+			io.WriteString(w, "AES\nDES3\nSHA-256\nSHA-512\nPOSTPKIOperation\n")
 		case "GetCACert":
 			e.store.scepMu.Lock()
 			defer e.store.scepMu.Unlock()

@@ -477,7 +477,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 	for _, p := range scepPaths {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", p+"?operation=GetCACaps", nil))
-		if w.Code != 200 || w.Body.String() != "AES\nSHA-256\nSHA-512\nPOSTPKIOperation\n" {
+		if w.Code != 200 || w.Body.String() != "AES\nDES3\nSHA-256\nSHA-512\nPOSTPKIOperation\n" {
 			t.Fatal("bad capabilities")
 		}
 		w = httptest.NewRecorder()
