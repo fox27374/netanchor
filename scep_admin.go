@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -12,6 +14,30 @@ type scepAdminData struct {
 	CAs                             []caOptionData
 	Profiles                        []CertTemplate
 	Challenges                      []scepChallenge
+	URLs                            []string // enrollment URLs for the switch
+}
+
+// scepURLs lists the enrollment URLs, built from the host this page was reached on.
+// The SCEP-only listener comes first. NETANCHOR_SCEP_PUBLIC_PORT is the port it is
+// published on when that differs from the listener port (a container port mapping).
+func scepURLs(r *http.Request) []string {
+	host := r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		host = h
+	}
+	var urls []string
+	if addr := os.Getenv("NETANCHOR_SCEP_ADDR"); addr != "" {
+		port := os.Getenv("NETANCHOR_SCEP_PUBLIC_PORT")
+		if port == "" {
+			_, port, _ = net.SplitHostPort(addr)
+		}
+		urls = append(urls, "http://"+net.JoinHostPort(host, port)+"/scep")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return append(urls, scheme+"://"+r.Host+"/scep")
 }
 
 func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +84,7 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		d.Error = err.Error()
 	}
-	v := scepAdminData{Secret: secret, Status: "locked / unavailable"}
+	v := scepAdminData{Secret: secret, Status: "locked / unavailable", URLs: scepURLs(r)}
 	s.store.scepMu.Lock()
 	st, loadErr := s.scep.load()
 	if loadErr == nil {

@@ -13,6 +13,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -343,9 +345,46 @@ func parseSCEPQuery(r *http.Request) (url.Values, error) {
 	}
 	return q, nil
 }
+
+// scepStatusWriter remembers the response status for the SCEP request log.
+type scepStatusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *scepStatusWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *scepStatusWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// logSCEP logs one line per SCEP request, so a switch's attempts show on the Logs page.
+func logSCEP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sw := &scepStatusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		from, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			from = r.RemoteAddr
+		}
+		if sw.code == 0 {
+			sw.code = http.StatusOK
+		}
+		log.Printf("scep %s %s op=%s from=%s status=%d", r.Method, r.URL.Path, r.URL.Query().Get("operation"), from, sw.code)
+	})
+}
+
 func (e *SCEPService) Routes() http.Handler {
 	// Intentionally no UI, login, setup, health or catch-all redirect routes.
-	return e.store.operations(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return logSCEP(e.store.operations(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if !scepPath(r.URL.Path) {
 			http.NotFound(w, r)
@@ -374,15 +413,18 @@ func (e *SCEPService) Routes() http.Handler {
 			defer e.store.scepMu.Unlock()
 			st, err := e.load()
 			if err != nil {
+				log.Printf("scep GetCACert: load state: %v", err)
 				w.WriteHeader(503)
 				return
 			}
 			if _, err = e.ca(st.CA); err != nil {
+				log.Printf("scep GetCACert: no usable SCEP CA selected: %v", err)
 				w.WriteHeader(503)
 				return
 			}
 			chain, err := e.store.IssuerChainPEM(st.CA)
 			if err != nil {
+				log.Printf("scep GetCACert: chain: %v", err)
 				w.WriteHeader(503)
 				return
 			}
@@ -429,5 +471,5 @@ func (e *SCEPService) Routes() http.Handler {
 		default:
 			http.Error(w, "unsupported SCEP operation", 400)
 		}
-	}))
+	})))
 }

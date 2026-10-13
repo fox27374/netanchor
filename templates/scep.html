@@ -6,6 +6,7 @@
   <h3>Service status</h3>
   <p>Immediate RSA enrollment for HTTPS / gNMI server certificates.</p>
   <p>Status: <strong>{{$v.Status}}</strong> · Selected CA: <code>{{$v.CA}}</code></p>
+  <p>Enrollment URL:{{range $v.URLs}} <code>{{.}}</code>{{end}}</p>
   {{if $v.Fingerprint}}<p>Selected CA SHA-256 fingerprint (verify out of band): <code>{{$v.Fingerprint}}</code></p>{{end}}
   <details class="adv">
     <summary>Endpoints and interoperability</summary>
