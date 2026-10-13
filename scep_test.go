@@ -348,6 +348,17 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 			}
 		})
 	}
+	for _, digest := range []asn1.ObjectIdentifier{pkcs7.OIDDigestAlgorithmSHA384, pkcs7.OIDDigestAlgorithmSHA512} {
+		g := newSCEPFixture(t)
+		c := g.csr(t, g.challenge(t), nil)
+		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.e.cert})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, s := g.e.enroll(g.signedEnvelope(t, e, digest, false, scep.PKCSReq)); s != 200 {
+			t.Fatalf("%v request digest refused, status %d", digest, s)
+		}
+	}
 	// Tests are deliberately nonparallel: library encryption defaults are global.
 	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES256CBC, pkcs7.EncryptionAlgorithmAES128GCM} {
 		pkcs7.ContentEncryptionAlgorithm = alg
@@ -452,7 +463,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 	for _, p := range scepPaths {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", p+"?operation=GetCACaps", nil))
-		if w.Code != 200 || w.Body.String() != "AES\nSHA-256\nPOSTPKIOperation\n" {
+		if w.Code != 200 || w.Body.String() != "AES\nSHA-256\nSHA-512\nPOSTPKIOperation\n" {
 			t.Fatal("bad capabilities")
 		}
 		w = httptest.NewRecorder()

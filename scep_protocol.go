@@ -168,7 +168,7 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 		return nil, nil, errSCEPRequest
 	}
 	si := p.Signers[0]
-	if !si.DigestAlgorithm.Algorithm.Equal(pkcs7.OIDDigestAlgorithmSHA256) || !(si.DigestEncryptionAlgorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmRSA) || si.DigestEncryptionAlgorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmRSASHA256)) {
+	if !scepDigestOK(si.DigestAlgorithm.Algorithm) || !scepSignatureOK(si.DigestEncryptionAlgorithm.Algorithm) {
 		return nil, nil, errSCEPRequest
 	}
 	seen := map[string]bool{}
@@ -202,6 +202,21 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 		return nil, nil, errSCEPRequest
 	}
 	return msg, signer, nil
+}
+
+// scepDigestOK accepts SHA-256, SHA-384 and SHA-512 request digests (IOS-XE "hash sha512").
+func scepDigestOK(oid asn1.ObjectIdentifier) bool {
+	return oid.Equal(pkcs7.OIDDigestAlgorithmSHA256) || oid.Equal(pkcs7.OIDDigestAlgorithmSHA384) || oid.Equal(pkcs7.OIDDigestAlgorithmSHA512)
+}
+
+// scepSignatureOK accepts RSA request signatures; the key size is checked on the signer certificate.
+func scepSignatureOK(oid asn1.ObjectIdentifier) bool {
+	for _, ok := range []asn1.ObjectIdentifier{pkcs7.OIDEncryptionAlgorithmRSA, pkcs7.OIDEncryptionAlgorithmRSASHA256, pkcs7.OIDEncryptionAlgorithmRSASHA384, pkcs7.OIDEncryptionAlgorithmRSASHA512} {
+		if oid.Equal(ok) {
+			return true
+		}
+	}
+	return false
 }
 
 func allowedSCEPIdentities(csr *x509.CertificateRequest, c scepChallenge) bool {
@@ -408,7 +423,7 @@ func (e *SCEPService) Routes() http.Handler {
 		switch op {
 		case "GetCACaps":
 			w.Header().Set("Content-Type", "text/plain")
-			io.WriteString(w, "AES\nSHA-256\nPOSTPKIOperation\n")
+			io.WriteString(w, "AES\nSHA-256\nSHA-512\nPOSTPKIOperation\n")
 		case "GetCACert":
 			e.store.scepMu.Lock()
 			defer e.store.scepMu.Unlock()

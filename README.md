@@ -243,8 +243,9 @@ to the platform guide; the trustpoint only selects the server identity. Verify
 both HTTPS and gNMI actually present the new leaf and intermediate chain, with
 serverAuth and the intended DNS/IP SANs; verify service reload behavior on your image.
 
-Only **AES-128-CBC content encryption, RSA PKCS#1 v1.5 key transport, and SHA-256
-RSA CMS signatures** are accepted. DES, 3DES, SHA-1/MD5 CMS signatures and other
+Only **AES-128-CBC content encryption, RSA PKCS#1 v1.5 key transport, and
+SHA-256/384/512 RSA CMS signatures** are accepted (Cisco `hash sha512` works). ECDSA
+keys are not supported yet. DES, 3DES, SHA-1/MD5 CMS signatures and other
 content algorithms are rejected; there is no downgrade. Setting Cisco `hash sha256`
 does not prove that its SCEP CMS layer supports this policy. Clients must send one
 self-signed RSA signer certificate matching the CSR key and one envelope recipient.
