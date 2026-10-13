@@ -449,7 +449,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 			t.Fatalf("dedicated listener exposed %s", p)
 		}
 	}
-	for _, p := range []string{"/scep", "/scep/cgi-bin/pkiclient.exe", "/cgi-bin/pkiclient.exe"} {
+	for _, p := range scepPaths {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", p+"?operation=GetCACaps", nil))
 		if w.Code != 200 || w.Body.String() != "AES\nSHA-256\nPOSTPKIOperation\n" {

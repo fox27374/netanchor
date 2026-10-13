@@ -319,7 +319,8 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 	return fail()
 }
 
-var scepPaths = [...]string{"/scep", "/scep/cgi-bin/pkiclient.exe", "/cgi-bin/pkiclient.exe"}
+// IOS-XE appends /pkiclient.exe to an enrollment URL that has a path, e.g. /scep/pkiclient.exe.
+var scepPaths = [...]string{"/scep", "/scep/pkiclient.exe", "/scep/cgi-bin/pkiclient.exe", "/cgi-bin/pkiclient.exe"}
 
 func scepPath(p string) bool {
 	for _, path := range scepPaths {

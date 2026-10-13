@@ -128,7 +128,7 @@ the admin account.
    SANs used to connect to the switch. Copy the random secret from the one-time
    response. Only its SHA-256 hash is persisted; losing it requires a new challenge.
    Unused challenges can be revoked in the UI.
-5. Enroll using `/scep`, `/scep/cgi-bin/pkiclient.exe`, or
+5. Enroll using `/scep` (IOS-XE requests `/scep/pkiclient.exe`), `/scep/cgi-bin/pkiclient.exe`, or
    `/cgi-bin/pkiclient.exe`. The normal GUI listener also serves these public
    protocol paths. The optional `NETANCHOR_SCEP_ADDR` listener is plain HTTP and
    serves **only SCEP**, never the UI, setup, login, admin routes, or health probe.
