@@ -12,11 +12,13 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/smallstep/pkcs7"
@@ -148,58 +150,76 @@ func uniqueChallenge(c *x509.CertificateRequest) error {
 }
 
 func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *scep.PKIMessage, signer *x509.Certificate, err error) {
+	// Every rejection wraps errSCEPRequest with the reason, for the log only;
+	// the client always gets the same 400.
+	bad := func(format string, args ...any) (*scep.PKIMessage, *x509.Certificate, error) {
+		return nil, nil, fmt.Errorf("%w: "+format, append([]any{errSCEPRequest}, args...)...)
+	}
 	if err := boundedSCEPASN1(raw); err != nil {
-		return nil, nil, err
+		return bad("message too large or malformed ASN.1")
 	}
 	// Defense in depth around third-party untrusted ASN.1. No panic escapes and
 	// all parse/decrypt failures get the same external error.
 	defer func() {
 		if recover() != nil {
-			msg = nil
-			signer = nil
-			err = errSCEPRequest
+			msg, signer, err = bad("parser panic")
 		}
 	}()
 	p, err := pkcs7.Parse(raw)
 	if err != nil {
-		return nil, nil, errSCEPRequest
+		return bad("not CMS SignedData: %v", err)
 	}
 	if len(p.Signers) != 1 || len(p.Certificates) != 1 {
-		return nil, nil, errSCEPRequest
+		return bad("need one signer and one certificate, got %d signers and %d certificates", len(p.Signers), len(p.Certificates))
 	}
 	si := p.Signers[0]
 	if !scepDigestOK(si.DigestAlgorithm.Algorithm) || !scepSignatureOK(si.DigestEncryptionAlgorithm.Algorithm) {
-		return nil, nil, errSCEPRequest
+		return bad("digest %v with signature %v not allowed (RSA with SHA-256/384/512 only)", si.DigestAlgorithm.Algorithm, si.DigestEncryptionAlgorithm.Algorithm)
 	}
 	seen := map[string]bool{}
 	for _, a := range si.AuthenticatedAttributes {
 		if seen[a.Type.String()] {
-			return nil, nil, errSCEPRequest
+			return bad("signed attribute %v repeated", a.Type)
 		}
 		seen[a.Type.String()] = true
 		var value asn1.RawValue
 		if strictASN1(a.Value.Bytes, &value) != nil {
-			return nil, nil, errSCEPRequest
+			return bad("signed attribute %v malformed", a.Type)
 		}
 	}
 	signer = p.Certificates[0]
 	pub, ok := signer.PublicKey.(*rsa.PublicKey)
-	if !ok || pub.N.BitLen() < 2048 || signer.IsCA || signer.CheckSignature(signer.SignatureAlgorithm, signer.RawTBSCertificate, signer.Signature) != nil {
-		return nil, nil, errSCEPRequest
+	switch {
+	case !ok:
+		return bad("signer key is %T; only RSA keys are supported", signer.PublicKey)
+	case pub.N.BitLen() < 2048:
+		return bad("signer RSA key has %d bits; at least 2048 required", pub.N.BitLen())
+	case signer.IsCA:
+		return bad("signer certificate is a CA")
+	case signer.CheckSignature(signer.SignatureAlgorithm, signer.RawTBSCertificate, signer.Signature) != nil:
+		return bad("signer certificate is not validly self-signed (%v)", signer.SignatureAlgorithm)
 	}
 	msg, err = scep.ParsePKIMessage(raw)
-	if err != nil || msg.MessageType != scep.PKCSReq || len(msg.SenderNonce) != 16 || len(msg.TransactionID) < 1 || len(msg.TransactionID) > 256 {
-		return nil, nil, errSCEPRequest
+	if err != nil {
+		return bad("SCEP message: %v", err)
+	}
+	if msg.MessageType != scep.PKCSReq || len(msg.SenderNonce) != 16 || len(msg.TransactionID) < 1 || len(msg.TransactionID) > 256 {
+		return bad("need a PKCSReq with a 16-byte nonce and a transaction id, got type %v, nonce %d bytes, transaction id %d bytes", msg.MessageType, len(msg.SenderNonce), len(msg.TransactionID))
 	}
 	env, err := inspectEnvelope(p.Content)
 	if err != nil {
-		return nil, nil, errSCEPRequest
+		return bad("envelope must be AES-128-CBC to the SCEP CA's RSA key")
 	}
 	if err = msg.DecryptPKIEnvelope(cert, scepDecrypter{key, env}); err != nil {
-		return nil, nil, errSCEPRequest
+		return bad("decrypt envelope: %v", err)
 	}
-	if msg.CSR.CheckSignature() != nil || uniqueChallenge(msg.CSR) != nil || !bytes.Equal(msg.CSR.RawSubjectPublicKeyInfo, signer.RawSubjectPublicKeyInfo) {
-		return nil, nil, errSCEPRequest
+	switch {
+	case msg.CSR.CheckSignature() != nil:
+		return bad("CSR signature invalid")
+	case uniqueChallenge(msg.CSR) != nil:
+		return bad("CSR must carry exactly one challenge password")
+	case !bytes.Equal(msg.CSR.RawSubjectPublicKeyInfo, signer.RawSubjectPublicKeyInfo):
+		return bad("CSR key differs from the signer certificate key")
 	}
 	return msg, signer, nil
 }
@@ -261,10 +281,12 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 	}
 	ca, err := e.ready(st)
 	if err != nil {
+		log.Printf("scep PKIOperation unavailable: %v", err)
 		return nil, 503
 	}
 	msg, signer, err := parseSCEP(raw, e.cert, e.key)
 	if err != nil {
+		log.Printf("scep PKIOperation rejected: %v", err)
 		return nil, 400
 	}
 	fail := func() ([]byte, int) {
@@ -469,11 +491,13 @@ func (e *SCEPService) Routes() http.Handler {
 		case "PKIOperation":
 			var raw []byte
 			if r.Method == "GET" {
-				raw, err = base64.StdEncoding.DecodeString(q.Get("message"))
+				// Clients such as IOS-XE send base64 unescaped, so '+' arrives as a space.
+				raw, err = base64.StdEncoding.DecodeString(strings.ReplaceAll(q.Get("message"), " ", "+"))
 			} else {
 				raw, err = io.ReadAll(http.MaxBytesReader(w, r.Body, scepMaxMessage))
 			}
 			if err != nil || len(raw) == 0 || len(raw) > scepMaxMessage {
+				log.Printf("scep PKIOperation rejected: message not readable (%d bytes, %v)", len(raw), err)
 				http.Error(w, "invalid SCEP request", 400)
 				return
 			}

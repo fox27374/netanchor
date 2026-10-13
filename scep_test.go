@@ -474,11 +474,18 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 		}
 	}
 	r := f.request(t, f.csr(t, f.challenge(t), nil))
-	for _, method := range []string{"GET", "POST"} {
+	if !strings.Contains(base64.StdEncoding.EncodeToString(r.Raw), "+") {
+		t.Fatal("test request has no '+' in base64; the unescaped case is not exercised")
+	}
+	for _, method := range []string{"GET", "GET-unescaped", "POST"} {
 		path := "/cgi-bin/pkiclient.exe?operation=PKIOperation"
 		body := bytes.NewReader(r.Raw)
-		if method == "GET" {
+		switch method {
+		case "GET":
 			path += "&message=" + url.QueryEscape(base64.StdEncoding.EncodeToString(r.Raw))
+			body = bytes.NewReader(nil)
+		case "GET-unescaped": // IOS-XE: raw base64, so '+' is read as a space
+			method, path = "GET", path+"&message="+base64.StdEncoding.EncodeToString(r.Raw)
 			body = bytes.NewReader(nil)
 		}
 		w := httptest.NewRecorder()
