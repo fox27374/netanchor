@@ -13,6 +13,7 @@ services:
       NETANCHOR_ADDR: "0.0.0.0:8443"
       NETANCHOR_DATA: /data
       NETANCHOR_SCEP_ADDR: "0.0.0.0:8080"
+      NETANCHOR_SCEP_PUBLIC_PORT: "${NETANCHOR_SCEP_PORT:-8085}"
       NETANCHOR_TLS_HOSTS: "ataltpr06.lnxnet.org,ataltpr06,10.140.60.248,localhost,127.0.0.1"
     volumes:
       - netanchor-data:/data

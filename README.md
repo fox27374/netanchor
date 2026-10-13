@@ -102,6 +102,7 @@ the admin account.
 |         | `NETANCHOR_CA_PASSPHRASE` | —                  | Unlocks an encrypted root so the server cert can be issued by it at startup |
 |         | `NETANCHOR_DISABLE_AUTH`  | —                  | Set to `1` to disable login (trusted local use only) |
 |         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
+|         | `NETANCHOR_SCEP_PUBLIC_PORT` | listener port   | Port the SCEP-only listener is published on, if a port mapping changes it; used for the URL shown on the SCEP page |
 |         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
 |         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. `0.0.0.0/0,::/0` allows every device; narrow it to management networks where possible. Empty refuses every target |
 
