@@ -82,7 +82,7 @@ func TestSCEPASN1RejectsBeforeStateLock(t *testing.T) {
 	defer e.store.scepMu.Unlock()
 	result := make(chan int, 1)
 	raw := nestedSCEPASN1(t, scepASN1Depth, []byte{4, 0})
-	go func() { _, status := e.enroll(raw); result <- status }()
+	go func() { _, status := e.enroll(raw, ""); result <- status }()
 	select {
 	case status := <-result:
 		if status != 400 {
@@ -105,7 +105,7 @@ func TestSCEPASN1EmbeddedEnvelopeGuard(t *testing.T) {
 	if _, err := inspectEnvelope(malicious); err == nil {
 		t.Fatal("inner depth violation accepted")
 	}
-	if _, status := f.e.enroll(raw); status != 400 {
+	if _, status := f.e.enroll(raw, ""); status != 400 {
 		t.Fatalf("embedded malicious envelope status: %d", status)
 	}
 }

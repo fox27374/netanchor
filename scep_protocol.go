@@ -312,7 +312,8 @@ func allowedSCEPIdentities(csr *x509.CertificateRequest, c scepChallenge) bool {
 	return true
 }
 
-func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
+// remote is the HTTP peer address (r.RemoteAddr); shared challenges authorize by it.
+func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 	// Reject resource-exhaustion inputs before waiting for the shared state lock.
 	if err := boundedSCEPASN1(raw); err != nil {
 		return nil, http.StatusBadRequest
@@ -557,7 +558,7 @@ func (e *SCEPService) Routes() http.Handler {
 				http.Error(w, "invalid SCEP request", 400)
 				return
 			}
-			body, status := e.enroll(raw)
+			body, status := e.enroll(raw, r.RemoteAddr)
 			if status != 200 {
 				http.Error(w, http.StatusText(status), status)
 				return

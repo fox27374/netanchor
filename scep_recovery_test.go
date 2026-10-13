@@ -15,7 +15,7 @@ func pendingSCEP(t *testing.T, f *scepFixture) ([]byte, scepState) {
 	if err := os.Rename(dir, dir+".offline"); err != nil {
 		t.Fatal(err)
 	}
-	if _, status := f.e.enroll(r.Raw); status != 503 {
+	if _, status := f.e.enroll(r.Raw, ""); status != 503 {
 		t.Fatalf("projection failure status: %d", status)
 	}
 	if err := os.Rename(dir+".offline", dir); err != nil {
@@ -74,7 +74,7 @@ func TestSCEPRecoveryPreservesUnavailableCA(t *testing.T) {
 			if err := f.e.selectCA(f.ca, "test-pass"); err != nil {
 				t.Fatal(err)
 			}
-			b, status := f.e.enroll(raw)
+			b, status := f.e.enroll(raw, "")
 			c := f.response(t, b, status, true)
 			if !bytes.Equal(c.Raw, st.Challenges[0].DER) {
 				t.Fatal("recovery changed committed certificate")

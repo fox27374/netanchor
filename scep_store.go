@@ -28,14 +28,20 @@ type scepState struct {
 	Challenges []scepChallenge
 }
 type scepChallenge struct {
-	Hash        string
-	CA          string
-	Profile     CertTemplate
-	DNS         []string
-	IPs         []net.IP
-	Days        int
-	Expires     time.Time
-	Revoked     bool
+	Hash    string
+	CA      string
+	Profile CertTemplate
+	DNS     []string
+	IPs     []net.IP
+	Days    int
+	Expires time.Time
+	Revoked bool
+	scepIssuance
+}
+
+// scepIssuance is the committed result of one enrollment. Its JSON is flat
+// (embedded), so existing scep.json journals keep their layout.
+type scepIssuance struct {
 	Used        time.Time
 	Transaction string
 	RequestHash string
@@ -315,31 +321,40 @@ func (e *SCEPService) recover(st *scepState) error {
 		if _, err := e.ca(c.CA); err != nil {
 			return fmt.Errorf("recovering SCEP issuance %s: %w", c.Record.Serial, err)
 		}
-		if err := durableWrite(e.store.certPath(c.Record.Serial), encodeCertPEM(c.DER)); err != nil {
+		if err := e.publish(&c.scepIssuance); err != nil {
 			return err
 		}
-		e.store.mu.Lock()
-		recs, err := e.store.loadIndex()
-		if err == nil {
-			found := false
-			for _, r := range recs {
-				if r.Serial == c.Record.Serial {
-					found = true
-				}
-			}
-			if !found {
-				err = e.store.saveIndex(append(recs, c.Record))
-			}
-		}
-		e.store.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		c.Published = true
 	}
 	if dirty {
 		return e.save(*st)
 	}
+	return nil
+}
+
+// Caller holds scepMu. publish projects one committed issuance into the
+// certificate PEM and index. It is idempotent.
+func (e *SCEPService) publish(iss *scepIssuance) error {
+	if err := durableWrite(e.store.certPath(iss.Record.Serial), encodeCertPEM(iss.DER)); err != nil {
+		return err
+	}
+	e.store.mu.Lock()
+	recs, err := e.store.loadIndex()
+	if err == nil {
+		found := false
+		for _, r := range recs {
+			if r.Serial == iss.Record.Serial {
+				found = true
+			}
+		}
+		if !found {
+			err = e.store.saveIndex(append(recs, iss.Record))
+		}
+	}
+	e.store.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	iss.Published = true
 	return nil
 }
 
