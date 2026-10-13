@@ -333,7 +333,8 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 		log.Printf("scep PKIOperation rejected: %v", err)
 		return nil, 400
 	}
-	fail := func() ([]byte, int) {
+	fail := func(reason string) ([]byte, int) {
+		log.Printf("scep PKIOperation failed (CertRep FAILURE sent): %s", reason)
 		m, err := msg.Fail(e.cert, e.key, scep.BadRequest)
 		if err != nil {
 			return nil, 503
@@ -353,24 +354,28 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 		}
 		if !c.Used.IsZero() {
 			if time.Now().After(c.Used.Add(scepRetention)) || c.Transaction != string(msg.TransactionID) || c.RequestHash != rh || c.SignerHash != sh {
-				return fail()
+				return fail("challenge already used by a different or expired request")
 			}
 			// A deliberately deleted certificate must not reappear through replay.
 			if _, ok := e.store.RecordBySerial(c.Record.Serial); !ok {
-				return fail()
+				return fail("certificate of this challenge was deleted")
 			}
 		} else {
-			if c.Revoked || time.Now().After(c.Expires) || !allowedSCEPIdentities(msg.CSR, *c) {
-				return fail()
-			}
-			if c.Profile.Name == "" || c.Profile.Profile != profileServer {
-				return fail()
+			switch {
+			case c.Revoked:
+				return fail("challenge revoked")
+			case time.Now().After(c.Expires):
+				return fail("challenge expired")
+			case !allowedSCEPIdentities(msg.CSR, *c):
+				return fail(fmt.Sprintf("CSR SANs (DNS %v, IP %v, email/URI %d) not all authorized by the challenge (DNS %v, IP %v)", msg.CSR.DNSNames, msg.CSR.IPAddresses, len(msg.CSR.EmailAddresses)+len(msg.CSR.URIs), c.DNS, c.IPs))
+			case c.Profile.Name == "" || c.Profile.Profile != profileServer:
+				return fail("challenge profile is not a server profile")
 			}
 			authorizedCSR := *msg.CSR
 			authorizedCSR.DNSNames, authorizedCSR.IPAddresses = c.DNS, c.IPs
 			rec, der, err := signCSRWithoutPersistence(&authorizedCSR, SignCSRParams{IssuerID: st.CA, ValidDays: c.Days, Template: c.Profile, TemplateName: c.Profile.Name}, ca, e.key, true)
 			if err != nil {
-				return fail()
+				return fail("signing: " + err.Error())
 			}
 			rec.Provenance = "scep"
 			c.DER = der
@@ -401,9 +406,10 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 		if err != nil {
 			return nil, 503
 		}
+		log.Printf("scep PKIOperation issued %q serial %s (single DES reply: %v)", cert.Subject.CommonName, cert.SerialNumber.Text(16), singleDES)
 		return resp.Raw, 200
 	}
-	return fail()
+	return fail("challenge password unknown or for another CA (create one on the SCEP page)")
 }
 
 // IOS-XE appends /pkiclient.exe to an enrollment URL that has a path, e.g. /scep/pkiclient.exe.
