@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ type scepAdminData struct {
 	CAs                             []caOptionData
 	Profiles                        []CertTemplate
 	Challenges                      []scepChallenge
+	Shared                          []scepSharedChallenge
 	URLs                            []string // enrollment URLs for the switch
 }
 
@@ -65,6 +67,19 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			err = s.scep.setAllowDES(r.PostForm.Get("allow") == "on")
 		case "revoke":
 			err = s.scep.revoke(r.PostForm.Get("id"))
+		case "shared-challenge":
+			var days, expiry int
+			days, err = scepFormInt(r.PostForm.Get("days"))
+			if err == nil {
+				expiry, err = scepFormInt(r.PostForm.Get("expiry"))
+			}
+			var ranges []netip.Prefix
+			if err == nil {
+				ranges, err = parseSharedRanges(sharedFormList(r.PostForm.Get("ranges")))
+			}
+			if err == nil {
+				secret, err = s.scep.sharedChallenge(r.PostForm.Get("profile"), ranges, sharedFormList(r.PostForm.Get("suffixes")), days, expiry)
+			}
 		case "challenge":
 			var days, hours int
 			days, err = scepFormInt(r.PostForm.Get("days"))
@@ -91,7 +106,7 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	s.store.scepMu.Lock()
 	st, loadErr := s.scep.load()
 	if loadErr == nil {
-		v.CA, v.Challenges, v.AllowDES = st.CA, st.Challenges, st.AllowDES
+		v.CA, v.Challenges, v.Shared, v.AllowDES = st.CA, st.Challenges, st.Shared, st.AllowDES
 		if _, readyErr := s.scep.ready(st); readyErr == nil {
 			v.Status = "unlocked"
 		}
@@ -121,6 +136,28 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Data = v
 	s.render(w, "scep", d)
+}
+
+// sharedFormList splits a textarea on commas and line breaks.
+func sharedFormList(text string) []string {
+	return strings.FieldsFunc(text, func(c rune) bool { return c == ',' || c == '\n' || c == '\r' })
+}
+
+// parseSharedRanges parses CIDR prefixes; bare addresses are refused so a /32 or /128 is explicit.
+func parseSharedRanges(items []string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(item)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR range %q: use address/length, for example 192.0.2.0/24", item)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func scepFormInt(s string) (int, error) {

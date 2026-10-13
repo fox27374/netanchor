@@ -57,6 +57,28 @@
   </details>
 </div>
 
+<div class="panel">
+  <h3>Create shared challenge</h3>
+  <p>A reusable secret for many switches in fixed address ranges. Each enrollment gets a certificate whose only IP SAN is the switch's source address.</p>
+  <form method="post" action="/admin/scep/shared-challenge">
+    <label for="shprofile">Server profile (policy snapshot)</label><select id="shprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select>
+    <label for="shranges">Source CIDR ranges, IPv4 or IPv6 (comma or newline separated)</label><textarea id="shranges" name="ranges" required placeholder="192.0.2.0/24, 2001:db8:10::/64"></textarea>
+    <label for="shsuffixes">DNS suffixes (optional; leave empty for IP-only certificates)</label><textarea id="shsuffixes" name="suffixes" placeholder="example.net"></textarea>
+    <div class="form-grid">
+      <div><label for="shdays">Certificate days (bounded by profile and issuer expiry)</label><input id="shdays" name="days" type="number" min="1" max="36500" value="365"></div>
+      <div><label for="shexpiry">Challenge expiry (days, 1–365)</label><input id="shexpiry" name="expiry" type="number" min="1" max="365" value="30" required></div>
+    </div>
+    <button class="btn" type="submit">Create shared challenge</button>
+  </form>
+  <details class="adv">
+    <summary>Shared challenge rules</summary>
+    <div>
+      <p>The source address must be inside a listed range. Names are accepted only under a listed suffix (a label boundary, so <code>evil-example.net</code> does not match <code>example.net</code>) and only if they resolve to the source address or name an inventory device at it. Without suffixes, certificates carry only the IP SAN. Certificates issued earlier stay valid when a challenge is revoked.</p>
+      <p>Residual risk: anyone holding the secret on a device inside a listed range can obtain a certificate for that device's own address.</p>
+    </div>
+  </details>
+</div>
+
 {{if $v.Secret}}<div class="alert ok" role="status"><strong>Copy this challenge now. It is shown only in this response.</strong><pre>{{$v.Secret}}</pre></div>{{end}}
 
 <div class="panel">
@@ -68,6 +90,19 @@
     <td>{{range .DNS}}{{.}}<br>{{end}}{{range .IPs}}{{.}}<br>{{end}}</td>
     <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn" type="submit">Revoke</button></form>{{end}}{{if .Record.Serial}}<a href="/cert/{{.Record.Serial}}">Certificate</a>{{end}}</td>
   </tr>{{else}}<tr><td colspan="4">No challenges.</td></tr>{{end}}
+  </tbody></table>
+</div>
+
+<div class="panel">
+  <h3>Shared challenges</h3>
+  <table class="stack"><thead><tr><th>Status / expiry</th><th>CA / profile</th><th>Source ranges / DNS suffixes</th><th>Issuances</th><th>Action</th></tr></thead><tbody>
+  {{range $v.Shared}}<tr>
+    <td>{{.Status}}<br>{{.Expires.Format "2006-01-02 15:04 MST"}}</td>
+    <td><code>{{.CA}}</code><br>{{.Profile.Name}} · {{.Days}} days</td>
+    <td>{{range .Ranges}}{{.}}<br>{{end}}{{range .Suffixes}}under {{.}}<br>{{else}}IP-only{{end}}</td>
+    <td>{{len .Issuances}} issued{{if not .LastUsed.IsZero}}<br>last {{.LastUsed.Format "2006-01-02 15:04 MST"}}{{end}}{{range .Issuances}}<br>{{.Source}} <a href="/cert/{{.Record.Serial}}">{{.Record.CommonName}}</a>{{end}}</td>
+    <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Revoke this shared challenge? Devices can no longer enroll with it. Certificates already issued stay valid." data-confirm-label="Revoke">Revoke</button></form>{{end}}</td>
+  </tr>{{else}}<tr><td colspan="5">No shared challenges.</td></tr>{{end}}
   </tbody></table>
 </div>
 
