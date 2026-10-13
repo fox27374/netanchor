@@ -144,6 +144,56 @@ The CSR subject/CN is retained, but is not used to authorize SANs. Issuances sta
 `kind=csr` with `provenance=scep` and a dashboard badge; device keys never leave
 the device.
 
+### Shared challenges
+
+A **shared challenge** is one reusable secret for many switches in fixed address
+ranges, when a per-device challenge per switch is impractical. Create it on the
+SCEP page with a server profile, one or more IPv4/IPv6 CIDR ranges, optional DNS
+suffixes, a certificate lifetime, and an expiry of 1 to 365 days. The secret is
+shown once and stored only as a hash. Per-device challenges keep working alongside
+it. Revoking a shared challenge stops new enrollments; certificates already issued
+stay valid.
+
+An enrollment with a shared challenge is accepted only if the CA matches and the
+challenge is neither revoked nor expired, and then:
+
+- The request's source address (the TCP peer, not `X-Forwarded-For`) must lie in
+  one of the ranges. The address is unmapped from IPv4-in-IPv6 form first.
+- The certificate's only IP SAN is that source address. IP SANs in the CSR are
+  ignored. CSR email or URI SANs are refused.
+- DNS names are gathered from the CSR DNS SANs, the subject CN if it is a dotted
+  name, and the PKCS#9 unstructuredName attribute (IOS-XE sends
+  `hostname=<fqdn>` there; a bare dotted FQDN is accepted too). Names are
+  lowercased, a trailing dot is removed, duplicates are dropped, and more than four
+  names are refused.
+- Each name must end at a label boundary in a configured suffix
+  (`sw1.example.net` matches `example.net`; `evil-example.net` does not), and must
+  either name an inventory device whose management address is the source, or
+  resolve (2-second timeout, no caching) to the source. Any failing name refuses
+  the whole request, and the log says which name and why.
+- With no CSR names, the inventory FQDN of a device at the source address is used
+  when it lies under a suffix.
+- The certificate CN is the first verified name, or the source address when there
+  is none. The CSR CN is otherwise ignored.
+- **No suffixes means IP-only certificates.** DNS names are then ignored and the
+  certificate carries only the source address.
+
+Each identity (source address plus its verified names) gets at most one issuance
+per ten minutes per shared challenge. A same-transaction retry from the same
+source, with the same CSR and signer, returns the stored certificate and is not
+rate limited. Issuances are journaled and recovered like per-device challenges.
+Journal entries older than seven days are pruned, except the newest per identity.
+
+**Residual risk.** Anyone who holds the secret on a device inside a listed range can
+obtain a certificate for that device's own address and any verified name. Keep
+ranges to management networks, use short expiry, and revoke when a secret leaks.
+
+**Deployment requirement.** Source ranges are only meaningful if the container sees
+the switch's real address. Rootless podman otherwise rewrites the source to the
+bridge gateway. `compose.dev.yaml` therefore sets `network_mode: pasta` on the
+`netanchor` service (ports stay published as before). Pasta must be installed on
+the host, and the published ports are the same as before.
+
 ### Runtime and deployment
 
 For an additional switch-facing port, set `NETANCHOR_SCEP_ADDR=0.0.0.0:8080`
