@@ -66,7 +66,7 @@ func TestSCEPASN1ResourceBudgets(t *testing.T) {
 			if err := boundedSCEPASN1(raw); err == nil {
 				t.Fatal("resource/framing violation accepted")
 			}
-			if _, _, err := parseSCEP(raw, nil, nil); err == nil {
+			if _, _, _, err := parseSCEP(raw, nil, nil, false); err == nil {
 				t.Fatal("parse boundary accepted invalid framing")
 			}
 			if allocs := testing.AllocsPerRun(5, func() { _ = boundedSCEPASN1(raw) }); allocs != 0 {

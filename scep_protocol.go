@@ -81,7 +81,7 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 	case !c.Type.Equal(pkcs7.OIDData):
 		return env, fmt.Errorf("%w: envelope content type %v", errSCEPRequest, c.Type)
 	case scepCipherSizes(c.Algorithm.Algorithm) == [2]int{}:
-		return env, fmt.Errorf("%w: envelope cipher %v not allowed (AES-128-CBC, AES-256-CBC or 3DES-CBC only)", errSCEPRequest, c.Algorithm.Algorithm)
+		return env, fmt.Errorf("%w: envelope cipher %v not allowed (AES-128-CBC, AES-256-CBC, 3DES-CBC or, if switched on, DES-CBC only)", errSCEPRequest, c.Algorithm.Algorithm)
 	case c.Ciphertext.IsCompound || len(c.Ciphertext.Bytes) == 0 || len(c.Ciphertext.Bytes)%scepCipherSizes(c.Algorithm.Algorithm)[1] != 0 || c.Algorithm.Parameters.Tag != asn1.TagOctetString || len(c.Algorithm.Parameters.Bytes) != scepCipherSizes(c.Algorithm.Algorithm)[1]:
 		return env, fmt.Errorf("%w: envelope ciphertext or IV malformed", errSCEPRequest)
 	}
@@ -101,8 +101,8 @@ func inspectEnvelope(b []byte) (scepEnvelope, error) {
 }
 
 // scepCipherSizes returns the key and block size of an allowed envelope cipher, or
-// zeros. 3DES is accepted only because IOS-XE encrypts with it (or single DES, which
-// stays refused) instead of AES; see README.
+// zeros. 3DES and DES exist only because IOS-XE encrypts with them instead of AES;
+// parseSCEP refuses DES unless the SCEP page switches it on. See README.
 func scepCipherSizes(oid asn1.ObjectIdentifier) [2]int {
 	switch {
 	case oid.Equal(pkcs7.OIDEncryptionAlgorithmAES128CBC):
@@ -111,6 +111,8 @@ func scepCipherSizes(oid asn1.ObjectIdentifier) [2]int {
 		return [2]int{32, aes.BlockSize}
 	case oid.Equal(pkcs7.OIDEncryptionAlgorithmDESEDE3CBC):
 		return [2]int{24, des.BlockSize}
+	case oid.Equal(pkcs7.OIDEncryptionAlgorithmDESCBC):
+		return [2]int{8, des.BlockSize}
 	}
 	return [2]int{}
 }
@@ -132,9 +134,12 @@ func (d scepDecrypter) Decrypt(r io.Reader, encrypted []byte, opts crypto.Decryp
 		return nil, errSCEPRequest
 	}
 	var b cipher.Block
-	if alg.Equal(pkcs7.OIDEncryptionAlgorithmDESEDE3CBC) {
+	switch {
+	case alg.Equal(pkcs7.OIDEncryptionAlgorithmDESEDE3CBC):
 		b, err = des.NewTripleDESCipher(k)
-	} else {
+	case alg.Equal(pkcs7.OIDEncryptionAlgorithmDESCBC):
+		b, err = des.NewCipher(k)
+	default:
 		b, err = aes.NewCipher(k)
 	}
 	if err != nil {
@@ -182,11 +187,13 @@ func uniqueChallenge(c *x509.CertificateRequest) error {
 	return nil
 }
 
-func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *scep.PKIMessage, signer *x509.Certificate, err error) {
+// parseSCEP reports whether the request envelope used single DES, so the reply
+// can use it too; allowDES is the SCEP page switch.
+func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey, allowDES bool) (msg *scep.PKIMessage, signer *x509.Certificate, singleDES bool, err error) {
 	// Every rejection wraps errSCEPRequest with the reason, for the log only;
 	// the client always gets the same 400.
-	bad := func(format string, args ...any) (*scep.PKIMessage, *x509.Certificate, error) {
-		return nil, nil, fmt.Errorf("%w: "+format, append([]any{errSCEPRequest}, args...)...)
+	bad := func(format string, args ...any) (*scep.PKIMessage, *x509.Certificate, bool, error) {
+		return nil, nil, false, fmt.Errorf("%w: "+format, append([]any{errSCEPRequest}, args...)...)
 	}
 	if err := boundedSCEPASN1(raw); err != nil {
 		return bad("message too large or malformed ASN.1")
@@ -195,7 +202,7 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 	// all parse/decrypt failures get the same external error.
 	defer func() {
 		if recover() != nil {
-			msg, signer, err = bad("parser panic")
+			msg, signer, singleDES, err = bad("parser panic")
 		}
 	}()
 	p, err := pkcs7.Parse(raw)
@@ -241,7 +248,11 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 	}
 	env, err := inspectEnvelope(p.Content)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
+	}
+	singleDES = env.Content.Algorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmDESCBC)
+	if singleDES && !allowDES {
+		return bad("envelope cipher is single DES, which is switched off on the SCEP page")
 	}
 	if err = msg.DecryptPKIEnvelope(cert, scepDecrypter{key, env}); err != nil {
 		return bad("decrypt envelope: %v", err)
@@ -254,7 +265,7 @@ func parseSCEP(raw []byte, cert *x509.Certificate, key *rsa.PrivateKey) (msg *sc
 	case !bytes.Equal(msg.CSR.RawSubjectPublicKeyInfo, signer.RawSubjectPublicKeyInfo):
 		return bad("CSR key differs from the signer certificate key")
 	}
-	return msg, signer, nil
+	return msg, signer, singleDES, nil
 }
 
 // scepDigestOK accepts SHA-256, SHA-384 and SHA-512 request digests (IOS-XE "hash sha512").
@@ -317,7 +328,7 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 		log.Printf("scep PKIOperation unavailable: %v", err)
 		return nil, 503
 	}
-	msg, signer, err := parseSCEP(raw, e.cert, e.key)
+	msg, signer, singleDES, err := parseSCEP(raw, e.cert, e.key, st.AllowDES)
 	if err != nil {
 		log.Printf("scep PKIOperation rejected: %v", err)
 		return nil, 400
@@ -380,7 +391,13 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 		if err != nil {
 			return nil, 503
 		}
+		if singleDES {
+			// A client that only sends DES cannot be assumed to read AES. pkcs7's cipher is a
+			// global; only this path encrypts in production and it holds scepMu.
+			pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmDESCBC
+		}
 		resp, err := msg.Success(e.cert, e.key, cert)
+		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
 		if err != nil {
 			return nil, 503
 		}

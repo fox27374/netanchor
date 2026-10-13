@@ -246,9 +246,13 @@ serverAuth and the intended DNS/IP SANs; verify service reload behavior on your 
 Only **AES-128-CBC, AES-256-CBC or 3DES-CBC content encryption, RSA PKCS#1 v1.5 key transport, and
 SHA-256/384/512 RSA CMS signatures** are accepted (Cisco `hash sha512` works). ECDSA
 keys are not supported yet. 3DES is a compatibility exception: IOS-XE sent single DES
-with AES advertised, so GetCACaps also lists `DES3`. Single DES stays refused, and
-responses are always AES-128-CBC. Single DES, SHA-1/MD5 CMS signatures and other
-content algorithms are rejected; there is no downgrade. Setting Cisco `hash sha256`
+with AES advertised, so GetCACaps also lists `DES3`. Responses are AES-128-CBC.
+Single DES is refused unless an administrator switches on **Allow single DES** on the
+SCEP page (stored in `scep.json`, off by default). Then DES requests are accepted and
+answered with DES. DES is crackable offline: anyone who recorded the traffic can read
+the CSR and the challenge password, so use it only on a trusted management network
+with short-lived challenges. SHA-1/MD5 CMS signatures and other content algorithms
+are always rejected. Setting Cisco `hash sha256`
 does not prove that its SCEP CMS layer supports this policy. Clients must send one
 self-signed RSA signer certificate matching the CSR key and one envelope recipient.
 Requests are limited to 1 MiB (decoded), with one challengePassword attribute.

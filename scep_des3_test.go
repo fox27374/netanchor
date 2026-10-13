@@ -65,7 +65,7 @@ func TestSCEPAcceptsTripleDESButNotDES(t *testing.T) {
 	csr := f.csr(t, f.challenge(t), nil)
 	single := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
 	if _, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq)); s != 400 {
-		t.Fatalf("single DES accepted, status %d", s)
+		t.Fatalf("single DES accepted while switched off, status %d", s)
 	}
 	triple := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 24, des.NewTripleDESCipher)
 	body, s := f.e.enroll(f.signedEnvelope(t, triple, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq))
@@ -79,5 +79,50 @@ func TestSCEPAcceptsTripleDESButNotDES(t *testing.T) {
 	short := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 8, des.NewCipher)
 	if _, s := f.e.enroll(f.signedEnvelope(t, short, pkcs7.OIDDigestAlgorithmSHA256, false, scep.PKCSReq)); s != 400 {
 		t.Fatalf("3DES envelope with an 8-byte key accepted, status %d", s)
+	}
+}
+
+func TestSCEPSingleDESWhenSwitchedOn(t *testing.T) {
+	f := newSCEPFixture(t)
+	if err := f.e.setAllowDES(true); err != nil {
+		t.Fatal(err)
+	}
+	csr := f.csr(t, f.challenge(t), nil)
+	single := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
+	body, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq))
+	if s != 200 {
+		t.Fatalf("single DES refused while switched on, status %d", s)
+	}
+	m, err := scep.ParsePKIMessage(body)
+	if err != nil || m.PKIStatus != scep.SUCCESS {
+		t.Fatalf("DES enrollment not successful: %v %+v", err, m)
+	}
+	// The reply is DES too, and the global cipher is back to AES afterwards.
+	p, err := pkcs7.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ci p7ContentInfo
+	if _, err := asn1.Unmarshal(p.Content, &ci); err != nil {
+		t.Fatal(err)
+	}
+	var env scepEnvelope
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &env); err != nil {
+		t.Fatal(err)
+	}
+	if !env.Content.Algorithm.Algorithm.Equal(pkcs7.OIDEncryptionAlgorithmDESCBC) {
+		t.Fatalf("reply cipher %v, want DES", env.Content.Algorithm.Algorithm)
+	}
+	if pkcs7.ContentEncryptionAlgorithm != pkcs7.EncryptionAlgorithmAES128CBC {
+		t.Fatal("pkcs7 cipher not restored to AES-128-CBC")
+	}
+	// Switching it off refuses DES again.
+	if err := f.e.setAllowDES(false); err != nil {
+		t.Fatal(err)
+	}
+	csr = f.csr(t, f.challenge(t), nil)
+	single = encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
+	if _, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq)); s != 400 {
+		t.Fatalf("single DES accepted after switching off, status %d", s)
 	}
 }

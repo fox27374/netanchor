@@ -24,6 +24,7 @@ const scepRetention = 7 * 24 * time.Hour
 // The ordinary certificate store is an idempotent projection of committed entries.
 type scepState struct {
 	CA         string
+	AllowDES   bool // single-DES request envelopes, for IOS-XE; off by default
 	Challenges []scepChallenge
 }
 type scepChallenge struct {
@@ -358,6 +359,17 @@ func (e *SCEPService) lock() {
 	e.store.scepMu.Lock()
 	defer e.store.scepMu.Unlock()
 	e.cert, e.key = nil, nil
+}
+
+func (e *SCEPService) setAllowDES(allow bool) error {
+	e.store.scepMu.Lock()
+	defer e.store.scepMu.Unlock()
+	st, err := e.load()
+	if err != nil {
+		return err
+	}
+	st.AllowDES = allow
+	return e.save(st)
 }
 
 func (e *SCEPService) revoke(hash string) error {
