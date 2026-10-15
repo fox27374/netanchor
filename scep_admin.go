@@ -11,6 +11,7 @@ import (
 
 type scepAdminData struct {
 	CA, Status, Fingerprint, Secret string
+	AllowDES                        bool
 	CAs                             []caOptionData
 	Profiles                        []CertTemplate
 	Challenges                      []scepChallenge
@@ -60,6 +61,8 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			err = s.scep.selectCA(r.PostForm.Get("ca"), r.PostForm.Get("passphrase"))
 		case "lock":
 			s.scep.lock()
+		case "des":
+			err = s.scep.setAllowDES(r.PostForm.Get("allow") == "on")
 		case "revoke":
 			err = s.scep.revoke(r.PostForm.Get("id"))
 		case "challenge":
@@ -88,7 +91,7 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	s.store.scepMu.Lock()
 	st, loadErr := s.scep.load()
 	if loadErr == nil {
-		v.CA, v.Challenges = st.CA, st.Challenges
+		v.CA, v.Challenges, v.AllowDES = st.CA, st.Challenges, st.AllowDES
 		if _, readyErr := s.scep.ready(st); readyErr == nil {
 			v.Status = "unlocked"
 		}

@@ -8,11 +8,18 @@
   <p>Status: <strong>{{$v.Status}}</strong> · Selected CA: <code>{{$v.CA}}</code></p>
   <p>Enrollment URL:{{range $v.URLs}} <code>{{.}}</code>{{end}}</p>
   {{if $v.Fingerprint}}<p>Selected CA SHA-256 fingerprint (verify out of band): <code>{{$v.Fingerprint}}</code></p>{{end}}
+  <form method="post" action="/admin/scep/des">
+    {{if $v.AllowDES}}<p>Single DES: <strong>allowed</strong>. Requests encrypted with 56-bit DES are accepted and answered with DES. Anyone who recorded the traffic can crack it and read the CSR and the challenge password.</p>
+    <button class="btn" type="submit">Refuse single DES</button>
+    {{else}}<p>Single DES: <strong>refused</strong>. Some IOS-XE releases encrypt SCEP requests only with single DES.</p>
+    <input type="hidden" name="allow" value="on">
+    <button class="btn danger" type="submit" data-confirm="Allow single DES? DES is crackable: anyone who recorded the SCEP traffic can read the CSR and the challenge password. Use it only on a trusted management network with short-lived challenges." data-confirm-label="Allow DES">Allow single DES</button>{{end}}
+  </form>
   <details class="adv">
     <summary>Endpoints and interoperability</summary>
     <div>
       <p>Endpoint: <code>/scep</code> (also <code>/scep/pkiclient.exe</code>, as Cisco IOS-XE requests it, and <code>/cgi-bin/pkiclient.exe</code>). The optional HTTP listener serves only SCEP.</p>
-      <p>Create a dedicated leaf-only RSA SCEP intermediate on the <a href="/ca">CA page</a> first. RSA keys only (no ECDSA yet), AES-128-CBC, and SHA-256, SHA-384 or SHA-512. Cisco interoperability is unverified.</p>
+      <p>Create a dedicated leaf-only RSA SCEP intermediate on the <a href="/ca">CA page</a> first. RSA keys only (no ECDSA yet), AES-128-CBC, AES-256-CBC or 3DES-CBC (single DES only when allowed above), and SHA-256, SHA-384 or SHA-512. Cisco interoperability is unverified.</p>
     </div>
   </details>
 </div>

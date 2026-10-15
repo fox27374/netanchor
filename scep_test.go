@@ -348,6 +348,20 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 			}
 		})
 	}
+	// AES-256-CBC envelopes are accepted as well as AES-128-CBC.
+	pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES256CBC
+	{
+		g := newSCEPFixture(t)
+		c := g.csr(t, g.challenge(t), nil)
+		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.e.cert})
+		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, s := g.e.enroll(g.signedEnvelope(t, e, pkcs7.OIDDigestAlgorithmSHA256, false, scep.PKCSReq)); s != 200 {
+			t.Fatalf("AES-256-CBC envelope refused, status %d", s)
+		}
+	}
 	for _, digest := range []asn1.ObjectIdentifier{pkcs7.OIDDigestAlgorithmSHA384, pkcs7.OIDDigestAlgorithmSHA512} {
 		g := newSCEPFixture(t)
 		c := g.csr(t, g.challenge(t), nil)
@@ -360,7 +374,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 		}
 	}
 	// Tests are deliberately nonparallel: library encryption defaults are global.
-	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES256CBC, pkcs7.EncryptionAlgorithmAES128GCM} {
+	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES128GCM} {
 		pkcs7.ContentEncryptionAlgorithm = alg
 		legacy, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.e.cert})
 		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
@@ -463,7 +477,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 	for _, p := range scepPaths {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", p+"?operation=GetCACaps", nil))
-		if w.Code != 200 || w.Body.String() != "AES\nSHA-256\nSHA-512\nPOSTPKIOperation\n" {
+		if w.Code != 200 || w.Body.String() != "AES\nDES3\nSHA-256\nSHA-512\nPOSTPKIOperation\n" {
 			t.Fatal("bad capabilities")
 		}
 		w = httptest.NewRecorder()
@@ -474,11 +488,18 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 		}
 	}
 	r := f.request(t, f.csr(t, f.challenge(t), nil))
-	for _, method := range []string{"GET", "POST"} {
+	if !strings.Contains(base64.StdEncoding.EncodeToString(r.Raw), "+") {
+		t.Fatal("test request has no '+' in base64; the unescaped case is not exercised")
+	}
+	for _, method := range []string{"GET", "GET-unescaped", "POST"} {
 		path := "/cgi-bin/pkiclient.exe?operation=PKIOperation"
 		body := bytes.NewReader(r.Raw)
-		if method == "GET" {
+		switch method {
+		case "GET":
 			path += "&message=" + url.QueryEscape(base64.StdEncoding.EncodeToString(r.Raw))
+			body = bytes.NewReader(nil)
+		case "GET-unescaped": // IOS-XE: raw base64, so '+' is read as a space
+			method, path = "GET", path+"&message="+base64.StdEncoding.EncodeToString(r.Raw)
 			body = bytes.NewReader(nil)
 		}
 		w := httptest.NewRecorder()
