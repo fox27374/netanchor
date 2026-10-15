@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -125,6 +126,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := s.base(r, "Logs", "logs")
+	slices.Reverse(lines) // newest first
 	d.Data = strings.Join(lines, "\n")
 	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, "logs", d)

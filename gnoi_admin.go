@@ -16,6 +16,8 @@ import (
 // pushPage is the data for templates/push.html.
 type pushPage struct {
 	Defs       []CertDefinition
+	NeedPass   map[string]bool // definition id: its CA key is encrypted and not unlocked
+	Unlocked   map[string]bool // definition id: its encrypted CA is the unlocked SCEP CA
 	Devices    []pushDeviceRow
 	Definition string // selected definition id
 	Username   string // echoed; never the password or CA passphrase
@@ -100,7 +102,17 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 			page.NeedCreds = true
 		}
 	}
-	page.Defs = defs
+	page.Defs, page.NeedPass, page.Unlocked = defs, map[string]bool{}, map[string]bool{}
+	enc := map[string]bool{}
+	for _, ca := range s.getIssueCAs() {
+		enc[ca.CAID] = ca.KeyEnc
+	}
+	for _, def := range defs {
+		if enc[def.CAID] {
+			_, unlocked := s.scep.unlockedPassphrase(def.CAID)
+			page.NeedPass[def.ID], page.Unlocked[def.ID] = !unlocked, unlocked
+		}
+	}
 	page.CSRF = s.backupToken(r)
 	d.Data = page
 	s.render(w, "push", d)
@@ -125,9 +137,6 @@ func (s *Server) pushFromForm(w http.ResponseWriter, r *http.Request, admin stri
 	if len(ids) == 0 {
 		return fail("select at least one device")
 	}
-	if r.PostForm.Get("rebind_ack") != "on" {
-		return fail("confirm that this push may rebind the device's gRPC server")
-	}
 	devs := make([]Device, 0, len(ids))
 	for _, id := range ids {
 		dev, ok, err := s.store.GetDevice(id)
@@ -142,7 +151,11 @@ func (s *Server) pushFromForm(w http.ResponseWriter, r *http.Request, admin stri
 	// Each device may take gnoiPushTimeout, so the response write deadline has to cover all of them.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Duration(len(devs))*gnoiPushTimeout + time.Minute))
 	posted := deviceCreds{Username: strings.TrimSpace(r.PostForm.Get("username")), Password: r.PostForm.Get("password")}
-	results := pushDefinitionToDevices(r.Context(), s.store, s.gnoiAllow, def, tmpl, devs, posted, r.PostForm.Get("ca_passphrase"), admin)
+	caPass := r.PostForm.Get("ca_passphrase")
+	if p, ok := s.scep.unlockedPassphrase(def.CAID); ok && caPass == "" {
+		caPass = p
+	}
+	results := pushDefinitionToDevices(r.Context(), s.store, s.gnoiAllow, def, tmpl, devs, posted, caPass, admin)
 	outcome, class := pushSummary(results)
 	return results, outcome, class
 }

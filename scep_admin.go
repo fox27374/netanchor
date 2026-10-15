@@ -11,13 +11,13 @@ import (
 )
 
 type scepAdminData struct {
-	CA, Status, Fingerprint, Secret string
-	AllowDES                        bool
-	CAs                             []caOptionData
-	Profiles                        []CertTemplate
-	Challenges                      []scepChallenge
-	Shared                          []scepSharedChallenge
-	URLs                            []string // enrollment URLs for the switch
+	CA, CAName, Secret string
+	AllowDES           bool
+	CAs                []caOptionData
+	Profiles           []CertTemplate
+	Challenges         []scepChallenge
+	Shared             []scepSharedChallenge
+	URLs               []string // enrollment URLs for the switch
 }
 
 // scepURLs lists the enrollment URLs, built from the host this page was reached on.
@@ -67,6 +67,8 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			err = s.scep.setAllowDES(r.PostForm.Get("allow") == "on")
 		case "revoke":
 			err = s.scep.revoke(r.PostForm.Get("id"))
+		case "delete":
+			err = s.scep.deleteChallenge(r.PostForm.Get("id"))
 		case "challenge", "shared-challenge":
 			// One create form; the kind radio picks per-device or shared.
 			if r.PathValue("action") == "challenge" && r.PostForm.Get("kind") != "shared" {
@@ -105,17 +107,11 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		d.Error = err.Error()
 	}
-	v := scepAdminData{Secret: secret, Status: "locked / unavailable", URLs: scepURLs(r)}
+	v := scepAdminData{Secret: secret, URLs: scepURLs(r)}
 	s.store.scepMu.Lock()
 	st, loadErr := s.scep.load()
 	if loadErr == nil {
 		v.CA, v.Challenges, v.Shared, v.AllowDES = st.CA, st.Challenges, st.Shared, st.AllowDES
-		if _, readyErr := s.scep.ready(st); readyErr == nil {
-			v.Status = "unlocked"
-		}
-		if c, caErr := s.scep.ca(st.CA); caErr == nil {
-			v.Fingerprint = hashSCEP(c.Raw)
-		}
 	}
 	s.store.scepMu.Unlock()
 	if loadErr != nil {
@@ -124,6 +120,9 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 	for _, ca := range s.getIssueCAs() {
 		if _, err := s.scep.ca(ca.CAID); err == nil {
 			v.CAs = append(v.CAs, ca)
+			if ca.CAID == v.CA {
+				v.CAName = ca.DisplayPath
+			}
 		}
 	}
 	s.store.mu.Lock()

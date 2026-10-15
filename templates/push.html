@@ -13,13 +13,13 @@
   <div class="panel">
     <h3>Certificate</h3>
     <label for="definition">Certificate definition</label>
-    <select id="definition" name="definition" required>
-      {{range $v.Defs}}<option value="{{.ID}}" {{if eq .ID $v.Definition}}selected{{end}}>{{.Name}}</option>{{end}}
+    <select id="definition" name="definition" required data-passphrase="ca_passphrase">
+      {{range $v.Defs}}<option value="{{.ID}}" {{if eq .ID $v.Definition}}selected{{end}} data-enc="{{index $v.NeedPass .ID}}"{{if index $v.Unlocked .ID}} data-unlocked="true"{{end}}>{{.Name}}</option>{{end}}
     </select>
     {{if not $v.Defs}}<p class="muted">No definitions yet. Create one under Device certificate definitions.</p>{{end}}
     <label for="ca_passphrase" style="margin-top:12px">Issuing CA passphrase (if encrypted)</label>
     <input id="ca_passphrase" name="ca_passphrase" type="password" autocomplete="off">
-    <p class="muted" style="font-size:12px">Asked once for this push. Never stored or logged.</p>
+    <p class="muted" style="font-size:12px">Asked once for this push. Never stored or logged. Not needed when the definition's CA is the unlocked SCEP CA.</p>
   </div>
 
   <div class="panel">
@@ -31,7 +31,7 @@
     </div>
     <p class="muted" style="font-size:12px">Hidden devices are not pushed, even if ticked.</p>
     <table id="push_devices">
-      <thead><tr><th>Select</th><th>Name</th><th>Address</th><th>Site</th><th>Tags</th><th>Verification</th><th>Credentials</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="select_all" aria-label="Select all listed devices"></th><th>Name</th><th>Address</th><th>Site</th><th>Tags</th><th>Verification</th><th>Credentials</th></tr></thead>
       <tbody>
       {{range $v.Devices}}
         <tr data-site="{{.Site}}" data-tags="{{.Tags}}">
@@ -64,8 +64,7 @@
   {{end}}
 
   <div class="panel">
-    <label><input type="checkbox" name="rebind_ack" value="on" required> I understand this may rebind each selected device's gRPC server to the new certificate.</label>
-    <div style="margin-top:16px"><button class="btn" type="submit">Push certificate to selected devices</button></div>
+    <div><button class="btn" type="submit">Push certificate to selected devices</button></div>
     <p class="muted" style="font-size:12px">Each device stops after 60 seconds. Nothing is cleaned up on failure. To remove a certificate from a device, use Delete on its device page.</p>
   </div>
 </form>
@@ -96,7 +95,18 @@
       if (ok) shown++;
     });
     document.getElementById('push_none').hidden = shown > 0;
+    syncAll();
   }
+  var all = document.getElementById('select_all');
+  function boxes() { return document.querySelectorAll('#push_devices tbody input:not(:disabled)'); }
+  function syncAll() {
+    var b = Array.prototype.slice.call(boxes());
+    all.checked = b.length > 0 && b.every(function (x) { return x.checked; });
+  }
+  all.addEventListener('change', function () {
+    boxes().forEach(function (x) { x.checked = all.checked; });
+  });
+  document.querySelector('#push_devices tbody').addEventListener('change', syncAll);
   site.addEventListener('input', apply);
   tag.addEventListener('input', apply);
   apply();
