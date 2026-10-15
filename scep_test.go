@@ -867,3 +867,20 @@ func TestSCEPAdminChallengeShownOnce(t *testing.T) {
 		t.Fatal("unauthorized request locked the service")
 	}
 }
+
+func TestSCEPDeleteChallenge(t *testing.T) {
+	f := newSCEPFixture(t)
+	h := hashSCEP([]byte(f.challenge(t)))
+	if err := f.e.deleteChallenge(h); err == nil {
+		t.Fatal("active challenge deleted")
+	}
+	if err := f.e.revoke(h); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.e.deleteChallenge(h); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.e.deleteChallenge(h); err == nil {
+		t.Fatal("deleted challenge still present")
+	}
+}

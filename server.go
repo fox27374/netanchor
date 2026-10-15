@@ -156,8 +156,8 @@ func (s *Server) Routes() http.Handler {
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/healthz" {
-			// The container healthcheck polls this every ~30 s; it would drown the Logs page.
+		if path == "/healthz" || (path == "/logs.txt" && r.URL.Query().Has("follow")) {
+			// The healthcheck and the Logs page follow mode poll; they would drown the Logs page.
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -69,6 +69,7 @@ type SCEPService struct {
 	store *Store
 	cert  *x509.Certificate
 	key   *rsa.PrivateKey
+	pass  string // passphrase of the unlocked CA, reused by device push
 }
 
 func durableWrite(path string, data []byte) error {
@@ -165,7 +166,7 @@ func (e *SCEPService) selectCA(id, password string) error {
 	if err := e.save(st); err != nil {
 		return err
 	}
-	e.cert, e.key = c, k
+	e.cert, e.key, e.pass = c, k, password
 	return nil
 }
 func (e *SCEPService) startup(secretFile string) error {
@@ -190,7 +191,7 @@ func (e *SCEPService) startup(secretFile string) error {
 func (e *SCEPService) ready(st scepState) (*x509.Certificate, error) {
 	c, err := e.ca(st.CA)
 	if err != nil {
-		e.cert, e.key = nil, nil
+		e.cert, e.key, e.pass = nil, nil, ""
 		return nil, err
 	}
 	if e.cert == nil || e.key == nil || !bytes.Equal(c.Raw, e.cert.Raw) {
@@ -386,7 +387,21 @@ func (s *Store) reconcileSCEP() error {
 func (e *SCEPService) lock() {
 	e.store.scepMu.Lock()
 	defer e.store.scepMu.Unlock()
-	e.cert, e.key = nil, nil
+	e.cert, e.key, e.pass = nil, nil, ""
+}
+
+// unlockedPassphrase returns the passphrase of CA id when it is the unlocked SCEP CA.
+func (e *SCEPService) unlockedPassphrase(id string) (string, bool) {
+	e.store.scepMu.Lock()
+	defer e.store.scepMu.Unlock()
+	st, err := e.load()
+	if err != nil || st.CA != id {
+		return "", false
+	}
+	if _, err := e.ready(st); err != nil {
+		return "", false
+	}
+	return e.pass, true
 }
 
 func (e *SCEPService) setAllowDES(allow bool) error {
@@ -421,6 +436,42 @@ func (e *SCEPService) revoke(hash string) error {
 	for i := range st.Shared {
 		if st.Shared[i].Hash == hash {
 			st.Shared[i].Revoked = true
+			return e.save(st)
+		}
+	}
+	return errors.New("challenge not found")
+}
+
+// deleteChallenge removes a revoked or expired challenge before retention prunes it.
+// Shared challenges with unpublished issuances stay so recovery can publish them.
+func (e *SCEPService) deleteChallenge(hash string) error {
+	e.store.scepMu.Lock()
+	defer e.store.scepMu.Unlock()
+	st, err := e.load()
+	if err != nil {
+		return err
+	}
+	deletable := func(status string) bool { return status == "revoked" || status == "expired" }
+	for i, c := range st.Challenges {
+		if c.Hash == hash {
+			if !deletable(c.Status()) {
+				return errors.New("only revoked or expired challenges can be deleted")
+			}
+			st.Challenges = append(st.Challenges[:i], st.Challenges[i+1:]...)
+			return e.save(st)
+		}
+	}
+	for i, c := range st.Shared {
+		if c.Hash == hash {
+			if !deletable(c.Status()) {
+				return errors.New("only revoked or expired challenges can be deleted")
+			}
+			for _, iss := range c.Issuances {
+				if !iss.Published {
+					return errors.New("challenge has an unpublished certificate; retry after it is published")
+				}
+			}
+			st.Shared = append(st.Shared[:i], st.Shared[i+1:]...)
 			return e.save(st)
 		}
 	}

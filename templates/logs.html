@@ -3,9 +3,27 @@
 <h2>Logs</h2>
 
 <div class="panel">
-  <p class="muted">The most recent lines of NetAnchor's log, newest at the bottom. Includes requests, errors and each gNOI step of device tests, adds, refreshes and pushes. <a href="/logs.txt">Plain text</a></p>
+  <p class="muted">The most recent lines of NetAnchor's log, newest on top. Includes requests, errors and each gNOI step of device tests, adds, refreshes and pushes. <a href="/logs.txt">Plain text</a></p>
+  <label><input type="checkbox" id="follow"> Follow (refresh every 2 seconds)</label>
 </div>
 
 <pre id="log" style="max-height:70vh;overflow:auto;white-space:pre-wrap">{{$v}}</pre>
-<script>var p = document.getElementById("log"); p.scrollTop = p.scrollHeight;</script>
+<script>
+(function () {
+  var p = document.getElementById("log"), follow = document.getElementById("follow"), timer;
+  function poll() {
+    fetch("/logs.txt?follow", {cache: "no-store"}).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.text();
+    }).then(function (t) {
+      t = t.replace(/\n$/, "").split("\n").reverse().join("\n");
+      if (t !== p.textContent) p.textContent = t;
+    }).catch(function () { follow.checked = false; clearInterval(timer); });
+  }
+  follow.addEventListener("change", function () {
+    clearInterval(timer);
+    if (follow.checked) { poll(); timer = setInterval(poll, 2000); }
+  });
+})();
+</script>
 {{end}}

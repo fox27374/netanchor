@@ -5,16 +5,18 @@
 <div class="panel">
   <h3>Service status</h3>
   <p>Immediate RSA enrollment for HTTPS / gNMI server certificates.</p>
-  <p>Status: <strong>{{$v.Status}}</strong> · Selected CA: <code>{{$v.CA}}</code></p>
-  <p>Enrollment URL:{{range $v.URLs}} <code>{{.}}</code>{{end}}</p>
-  {{if $v.Fingerprint}}<p>Selected CA SHA-256 fingerprint (verify out of band): <code>{{$v.Fingerprint}}</code></p>{{end}}
-  <form method="post" action="/admin/scep/des">
-    {{if $v.AllowDES}}<p>Single DES: <strong>allowed</strong>. Requests encrypted with 56-bit DES are accepted and answered with DES. Anyone who recorded the traffic can crack it and read the CSR and the challenge password.</p>
-    <button class="btn" type="submit">Refuse single DES</button>
-    {{else}}<p>Single DES: <strong>refused</strong>. Some IOS-XE releases encrypt SCEP requests only with single DES.</p>
-    <input type="hidden" name="allow" value="on">
-    <button class="btn danger" type="submit" data-confirm="Allow single DES? DES is crackable: anyone who recorded the SCEP traffic can read the CSR and the challenge password. Use it only on a trusted management network with short-lived challenges." data-confirm-label="Allow DES">Allow single DES</button>{{end}}
-  </form>
+  <div class="row">
+    <div>
+      <p>Signing CA: <strong>{{if $v.CAName}}{{$v.CAName}}{{else}}none selected{{end}}</strong></p>
+      <p>Enrollment URL:{{range $v.URLs}} <code>{{.}}</code>{{end}}</p>
+    </div>
+    <form method="post" action="/admin/scep/des" class="scep-des">
+      <input type="hidden" name="allow" value="{{if not $v.AllowDES}}on{{end}}">
+      <label><input type="checkbox" {{if $v.AllowDES}}checked{{end}} onchange="var f=this.form;if(!this.checked){f.requestSubmit();return}var cb=this,d=document.getElementById('confirm-dialog');d.addEventListener('close',function(){if(d.returnValue!=='ok')cb.checked=false},{once:true});f.querySelector('button').click()"> Allow single DES</label>
+      <button type="submit" hidden data-confirm="Allow single DES? DES is crackable: anyone who recorded the SCEP traffic can read the CSR and the challenge password. Use it only on a trusted management network with short-lived challenges." data-confirm-label="Allow DES"></button>
+      <p class="muted">Some IOS-XE releases encrypt SCEP requests only with 56-bit DES, which recorded traffic can crack.</p>
+    </form>
+  </div>
   <details class="adv">
     <summary>Endpoints and interoperability</summary>
     <div>
@@ -46,20 +48,20 @@
       <label><input type="radio" name="kind" value="device" checked> One device (one-time, exact SANs)</label>
       <label><input type="radio" name="kind" value="shared" id="kind-shared"> Shared (reusable, by source address range)</label>
     </div>
-    <div class="form-grid">
-      <div><label for="sprofile">Server profile (policy snapshot)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select></div>
-      <div><label for="sdays">Certificate days (bounded by profile and issuer expiry)</label><input id="sdays" name="days" type="number" min="1" max="36500" value="365"></div>
+    <div class="form-grid-3">
+      <div><label for="sprofile">Server profile (<a href="/templates">add</a>)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select></div>
+      <div><label for="sdays">Certificate days</label><input id="sdays" name="days" type="number" min="1" max="36500" value="365"></div>
+      <div class="kind-device"><label for="shours">Challenge expiry (hours, 1–168)</label><input id="shours" name="hours" type="number" min="1" max="168" value="24"></div>
+      <div class="kind-shared"><label for="shexpiry">Challenge expiry (days, 1–365)</label><input id="shexpiry" name="expiry" type="number" min="1" max="365" value="30"></div>
     </div>
     <div class="kind-device">
       <label for="ssans">Exact authorized DNS / IP SANs (comma or newline separated)</label><textarea id="ssans" name="sans" placeholder="switch.example.net, 192.0.2.10"></textarea>
-      <label for="shours">Challenge expiry (hours, 1–168)</label><input id="shours" name="hours" type="number" min="1" max="168" value="24">
     </div>
     <div class="kind-shared">
       <div class="form-grid">
         <div><label for="shranges">Source CIDR ranges, IPv4 or IPv6</label><textarea id="shranges" name="ranges" placeholder="192.0.2.0/24, 2001:db8:10::/64"></textarea></div>
         <div><label for="shsuffixes">DNS suffixes (empty = IP-only certificates)</label><textarea id="shsuffixes" name="suffixes" placeholder="example.net"></textarea></div>
       </div>
-      <label for="shexpiry">Challenge expiry (days, 1–365)</label><input id="shexpiry" name="expiry" type="number" min="1" max="365" value="30">
     </div>
     <button class="btn" type="submit">Create challenge</button>
   </form>
@@ -68,7 +70,8 @@
     <div>
       <p><strong>One device:</strong> issued SANs are exactly those authorized here, even if absent from the CSR. Extra CSR SANs are rejected. The challenge works once; same-transaction retries are answered for seven days.</p>
       <p><strong>Shared:</strong> the source address must be inside a listed range and becomes the only IP SAN. Names are accepted only under a listed suffix (a label boundary, so <code>evil-example.net</code> does not match <code>example.net</code>) and only if they resolve to the source address or name an inventory device at it. Residual risk: anyone holding the secret on a device inside a listed range can obtain a certificate for that device's own address.</p>
-      <p>Revoking a challenge does not revoke certificates already issued.</p>
+      <p>Certificate days are capped by the profile and by the issuer's expiry.</p>
+      <p>Revoking a challenge does not revoke certificates already issued. Revoked or expired challenges can be deleted; issued certificates stay.</p>
     </div>
   </details>
 </div>
@@ -81,14 +84,14 @@
     <td>{{.Profile.Name}}<br><span class="muted">{{.Days}} days</span></td>
     <td>{{range .Ranges}}{{.}}<br>{{end}}{{range .Suffixes}}under {{.}}<br>{{else}}<span class="muted">IP-only</span>{{end}}</td>
     <td>{{range .Issuances}}<a href="/cert/{{.Record.Serial}}">{{.Record.CommonName}}</a><br>{{else}}<span class="muted">none</span>{{end}}</td>
-    <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Revoke this shared challenge? Devices can no longer enroll with it. Certificates already issued stay valid." data-confirm-label="Revoke">Revoke</button></form>{{end}}</td>
+    <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Revoke this shared challenge? Devices can no longer enroll with it. Certificates already issued stay valid." data-confirm-label="Revoke">Revoke</button></form>{{else if or (eq .Status "revoked") (eq .Status "expired")}}<form method="post" action="/admin/scep/delete"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Delete this challenge? Certificates already issued stay valid." data-confirm-label="Delete">Delete</button></form>{{end}}</td>
   </tr>{{end}}
   {{range $v.Challenges}}<tr>
     <td>One device · {{.Status}}<br><span class="muted">until {{.Expires.Format "2006-01-02 15:04"}}</span></td>
     <td>{{.Profile.Name}}<br><span class="muted">{{.Days}} days</span></td>
     <td>{{range .DNS}}{{.}}<br>{{end}}{{range .IPs}}{{.}}<br>{{end}}</td>
     <td>{{if .Record.Serial}}<a href="/cert/{{.Record.Serial}}">{{.Record.CommonName}}</a>{{else}}<span class="muted">none</span>{{end}}</td>
-    <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Revoke this challenge? The device can no longer enroll with it." data-confirm-label="Revoke">Revoke</button></form>{{end}}</td>
+    <td>{{if eq .Status "active"}}<form method="post" action="/admin/scep/revoke"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Revoke this challenge? The device can no longer enroll with it." data-confirm-label="Revoke">Revoke</button></form>{{else if or (eq .Status "revoked") (eq .Status "expired")}}<form method="post" action="/admin/scep/delete"><input type="hidden" name="id" value="{{.Hash}}"><button class="btn danger" type="submit" data-confirm="Delete this challenge? Certificates already issued stay valid." data-confirm-label="Delete">Delete</button></form>{{end}}</td>
   </tr>{{end}}
   {{if and (not $v.Shared) (not $v.Challenges)}}<tr><td colspan="5">No challenges.</td></tr>{{end}}
   </tbody></table>
