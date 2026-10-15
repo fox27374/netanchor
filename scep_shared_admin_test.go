@@ -87,7 +87,7 @@ func TestSharedAdminFormValidationAndRender(t *testing.T) {
 	if page.Code != 200 || strings.Contains(html, secret) {
 		t.Fatalf("page status %d or secret redisplayed", page.Code)
 	}
-	for _, want := range []string{"Shared challenges", "192.0.2.0/24", "under example.net", "192.0.2.10", "/cert/" + serialString(issued.SerialNumber), "active"} {
+	for _, want := range []string{"Shared · active", "192.0.2.0/24", "under example.net", "192.0.2.10", "/cert/" + serialString(issued.SerialNumber), "active"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("SCEP page lacks %q", want)
 		}

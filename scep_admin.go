@@ -67,7 +67,19 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			err = s.scep.setAllowDES(r.PostForm.Get("allow") == "on")
 		case "revoke":
 			err = s.scep.revoke(r.PostForm.Get("id"))
-		case "shared-challenge":
+		case "challenge", "shared-challenge":
+			// One create form; the kind radio picks per-device or shared.
+			if r.PathValue("action") == "challenge" && r.PostForm.Get("kind") != "shared" {
+				var days, hours int
+				days, err = scepFormInt(r.PostForm.Get("days"))
+				if err == nil {
+					hours, err = scepFormInt(r.PostForm.Get("hours"))
+				}
+				if err == nil {
+					secret, err = s.scep.challenge(r.PostForm.Get("profile"), strings.FieldsFunc(r.PostForm.Get("sans"), func(c rune) bool { return c == ',' || c == '\n' || c == '\r' }), days, hours)
+				}
+				break
+			}
 			var days, expiry int
 			days, err = scepFormInt(r.PostForm.Get("days"))
 			if err == nil {
@@ -79,15 +91,6 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			}
 			if err == nil {
 				secret, err = s.scep.sharedChallenge(r.PostForm.Get("profile"), ranges, sharedFormList(r.PostForm.Get("suffixes")), days, expiry)
-			}
-		case "challenge":
-			var days, hours int
-			days, err = scepFormInt(r.PostForm.Get("days"))
-			if err == nil {
-				hours, err = scepFormInt(r.PostForm.Get("hours"))
-			}
-			if err == nil {
-				secret, err = s.scep.challenge(r.PostForm.Get("profile"), strings.FieldsFunc(r.PostForm.Get("sans"), func(c rune) bool { return c == ',' || c == '\n' || c == '\r' }), days, hours)
 			}
 		default:
 			http.NotFound(w, r)
