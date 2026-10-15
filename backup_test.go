@@ -152,14 +152,14 @@ func TestBackupFullRoundTrip(t *testing.T) {
 			old := f.e
 			f.e = e
 			defer func() { f.e = old }()
-			b, status := e.enroll(raw)
+			b, status := e.enroll(raw, "")
 			got := f.response(t, b, status, true)
 			if !bytes.Equal(got.Raw, pending.Challenges[0].DER) {
 				t.Fatal("used issuance changed")
 			}
 			for _, secret := range []string{unused, revoked} {
 				req := f.request(t, f.csr(t, secret, nil))
-				b, status = e.enroll(req.Raw)
+				b, status = e.enroll(req.Raw, "")
 				f.response(t, b, status, false)
 			}
 		})

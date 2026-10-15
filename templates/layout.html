@@ -89,6 +89,8 @@
   .form-narrow { max-width:370px; }
   details.adv summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:8px; }
   details.adv > div { margin-top:12px; }
+  .scep-kind label { display:inline-flex; align-items:center; gap:6px; margin-right:18px; }
+  .scep-create:not(:has(#kind-shared:checked)) .kind-shared, .scep-create:has(#kind-shared:checked) .kind-device { display:none; }
   .ident { background:var(--field); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:4px 0 22px; }
   .identrow { margin-bottom:14px; }
   .identrow:last-child { margin-bottom:0; }

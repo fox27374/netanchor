@@ -312,7 +312,8 @@ func allowedSCEPIdentities(csr *x509.CertificateRequest, c scepChallenge) bool {
 	return true
 }
 
-func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
+// remote is the HTTP peer address (r.RemoteAddr); shared challenges authorize by it.
+func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 	// Reject resource-exhaustion inputs before waiting for the shared state lock.
 	if err := boundedSCEPASN1(raw); err != nil {
 		return nil, http.StatusBadRequest
@@ -343,6 +344,25 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 	}
 	if err = e.recover(&st); err != nil {
 		return nil, 503
+	}
+	// respond encodes the issued certificate in the reply's envelope cipher.
+	respond := func(der []byte, origin string) ([]byte, int) {
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, 503
+		}
+		if singleDES {
+			// A client that only sends DES cannot be assumed to read AES. pkcs7's cipher is a
+			// global; only this path encrypts in production and it holds scepMu.
+			pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmDESCBC
+		}
+		resp, err := msg.Success(e.cert, e.key, cert)
+		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
+		if err != nil {
+			return nil, 503
+		}
+		log.Printf("scep PKIOperation issued %q serial %s%s (single DES reply: %v)", cert.Subject.CommonName, cert.SerialNumber.Text(16), origin, singleDES)
+		return resp.Raw, 200
 	}
 	h := hashSCEP([]byte(msg.ChallengePassword))
 	rh := hashSCEP(msg.CSR.Raw)
@@ -392,22 +412,17 @@ func (e *SCEPService) enroll(raw []byte) ([]byte, int) {
 				return nil, 503
 			}
 		}
-		cert, err := x509.ParseCertificate(c.DER)
-		if err != nil {
+		return respond(c.DER, "")
+	}
+	if i := sharedIndex(&st, h); i >= 0 {
+		der, reason, err := e.enrollShared(&st, &st.Shared[i], msg, rh, sh, remote, ca)
+		switch {
+		case err != nil:
 			return nil, 503
+		case reason != "":
+			return fail(reason)
 		}
-		if singleDES {
-			// A client that only sends DES cannot be assumed to read AES. pkcs7's cipher is a
-			// global; only this path encrypts in production and it holds scepMu.
-			pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmDESCBC
-		}
-		resp, err := msg.Success(e.cert, e.key, cert)
-		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
-		if err != nil {
-			return nil, 503
-		}
-		log.Printf("scep PKIOperation issued %q serial %s (single DES reply: %v)", cert.Subject.CommonName, cert.SerialNumber.Text(16), singleDES)
-		return resp.Raw, 200
+		return respond(der, " shared from "+remoteHost(remote))
 	}
 	return fail("challenge password unknown or for another CA (create one on the SCEP page)")
 }
@@ -557,7 +572,7 @@ func (e *SCEPService) Routes() http.Handler {
 				http.Error(w, "invalid SCEP request", 400)
 				return
 			}
-			body, status := e.enroll(raw)
+			body, status := e.enroll(raw, r.RemoteAddr)
 			if status != 200 {
 				http.Error(w, http.StatusText(status), status)
 				return

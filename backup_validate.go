@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -223,7 +224,44 @@ func validateBackup(dir string) error {
 			return err
 		}
 	}
-	if len(st.Challenges) > 10000 {
+	// checkSCEPIssuance validates one committed issuance against the journal, its CA and its projections.
+	checkSCEPIssuance := func(ca string, profile CertTemplate, iss scepIssuance) error {
+		if len(iss.RequestHash) != 64 || !ValidSerial(iss.RequestHash) || len(iss.SignerHash) != 64 || !ValidSerial(iss.SignerHash) || len(iss.Transaction) < 1 || len(iss.Transaction) > 256 {
+			return errors.New("invalid SCEP history")
+		}
+		cert, err := x509.ParseCertificate(iss.DER)
+		if err != nil || iss.Record.Serial != serialString(cert.SerialNumber) || iss.Record.IssuerID != ca || iss.Record.Kind != "csr" || iss.Record.Provenance != "scep" || iss.Record.HasKey || iss.Record.KeyEnc {
+			return errors.New("inconsistent SCEP issuance")
+		}
+		if cert.IsCA || cert.NotBefore.Unix() != iss.Record.NotBefore.Unix() || cert.NotAfter.Unix() != iss.Record.NotAfter.Unix() || !reflect.DeepEqual(profile, iss.Record.TemplatePolicy) || iss.Record.TemplateName != profile.Name {
+			return errors.New("SCEP policy/metadata mismatch")
+		}
+		if issuer := cas[ca]; issuer != nil {
+			if cert.CheckSignatureFrom(issuer) != nil {
+				return errors.New("SCEP issuer mismatch")
+			}
+		} else if iss.Published {
+			if historical := historyCerts[iss.Record.Serial]; historical == nil || !bytes.Equal(historical.Raw, iss.DER) {
+				return errors.New("published SCEP certificate missing from live data and trash")
+			}
+		} else {
+			return errors.New("pending SCEP issuer missing")
+		}
+		if r, ok := records[iss.Record.Serial]; ok {
+			if !reflect.DeepEqual(r, iss.Record) || !bytes.Equal(certs[r.Serial].Raw, iss.DER) {
+				return errors.New("SCEP projection mismatch")
+			}
+		} else if !iss.Published {
+			// A committed journal may have a PEM but no index yet. It is recovered
+			// only in staging, after every journal record has been validated.
+			if b, err := os.ReadFile(s.certPath(iss.Record.Serial)); err == nil && !bytes.Equal(b, encodeCertPEM(iss.DER)) {
+				return errors.New("pending SCEP PEM mismatch")
+			}
+		}
+
+		return nil
+	}
+	if len(st.Challenges)+len(st.Shared) > 10000 {
 		return errors.New("too many SCEP challenges")
 	}
 	names = map[string]bool{}
@@ -264,36 +302,39 @@ func validateBackup(dir string) error {
 			}
 			continue
 		}
-		if len(c.RequestHash) != 64 || !ValidSerial(c.RequestHash) || len(c.SignerHash) != 64 || !ValidSerial(c.SignerHash) || len(c.Transaction) < 1 || len(c.Transaction) > 256 {
-			return errors.New("invalid SCEP history")
+		if err := checkSCEPIssuance(c.CA, c.Profile, c.scepIssuance); err != nil {
+			return err
 		}
-		cert, err := x509.ParseCertificate(c.DER)
-		if err != nil || c.Record.Serial != serialString(cert.SerialNumber) || c.Record.IssuerID != c.CA || c.Record.Kind != "csr" || c.Record.Provenance != "scep" || c.Record.HasKey || c.Record.KeyEnc {
-			return errors.New("inconsistent SCEP issuance")
+	}
+	for _, c := range st.Shared {
+		if len(c.Hash) != 64 || !ValidSerial(c.Hash) || names[c.Hash] || !backupCAID(c.CA) || c.CA == caRoot {
+			return errors.New("invalid SCEP shared challenge")
 		}
-		if cert.IsCA || cert.NotBefore.Unix() != c.Record.NotBefore.Unix() || cert.NotAfter.Unix() != c.Record.NotAfter.Unix() || !reflect.DeepEqual(c.Profile, c.Record.TemplatePolicy) || c.Record.TemplateName != c.Profile.Name {
-			return errors.New("SCEP policy/metadata mismatch")
+		names[c.Hash] = true
+		if c.Expires.IsZero() || c.Created.IsZero() || c.Days < 1 || c.Days > 36500 || c.Profile.Profile != profileServer {
+			return errors.New("invalid SCEP shared authorization")
 		}
-		if issuer := cas[c.CA]; issuer != nil {
-			if cert.CheckSignatureFrom(issuer) != nil {
-				return errors.New("SCEP issuer mismatch")
+		if err := c.Profile.normalize(); err != nil {
+			return err
+		}
+		ranges, err := normalizeSharedRanges(c.Ranges)
+		if err != nil || !slices.Equal(ranges, c.Ranges) {
+			return errors.New("invalid SCEP shared ranges")
+		}
+		suffixes, err := normalizeSharedSuffixes(c.Suffixes)
+		if err != nil || !slices.Equal(suffixes, c.Suffixes) {
+			return errors.New("invalid SCEP shared suffixes")
+		}
+		for _, iss := range c.Issuances {
+			inRange := false
+			for _, p := range ranges {
+				inRange = inRange || p.Contains(iss.Source)
 			}
-		} else if c.Published {
-			if historical := historyCerts[c.Record.Serial]; historical == nil || !bytes.Equal(historical.Raw, c.DER) {
-				return errors.New("published SCEP certificate missing from live data and trash")
+			if iss.Used.IsZero() || iss.Identity == "" || !inRange {
+				return errors.New("invalid SCEP shared issuance")
 			}
-		} else {
-			return errors.New("pending SCEP issuer missing")
-		}
-		if r, ok := records[c.Record.Serial]; ok {
-			if !reflect.DeepEqual(r, c.Record) || !bytes.Equal(certs[r.Serial].Raw, c.DER) {
-				return errors.New("SCEP projection mismatch")
-			}
-		} else if !c.Published {
-			// A committed journal may have a PEM but no index yet. It is recovered
-			// only in staging, after every journal record has been validated.
-			if b, err := os.ReadFile(s.certPath(c.Record.Serial)); err == nil && !bytes.Equal(b, encodeCertPEM(c.DER)) {
-				return errors.New("pending SCEP PEM mismatch")
+			if err := checkSCEPIssuance(c.CA, c.Profile, iss.scepIssuance); err != nil {
+				return err
 			}
 		}
 	}
@@ -461,10 +502,19 @@ func validateRecords(dir string, recs []CertRecord, cas map[string]*x509.Certifi
 					if err := backupJSON(filepath.Join(dir, "scep.json"), &st); err != nil {
 						return err
 					}
+					var pending []scepIssuance
 					for _, c := range st.Challenges {
-						if !c.Used.IsZero() && !c.Published && rel == filepath.Join("certs", c.Record.Serial+"-cert.pem") {
+						pending = append(pending, c.scepIssuance)
+					}
+					for _, c := range st.Shared {
+						for _, iss := range c.Issuances {
+							pending = append(pending, iss.scepIssuance)
+						}
+					}
+					for _, iss := range pending {
+						if !iss.Used.IsZero() && !iss.Published && rel == filepath.Join("certs", iss.Record.Serial+"-cert.pem") {
 							b, err := os.ReadFile(p)
-							if err == nil && bytes.Equal(b, encodeCertPEM(c.DER)) {
+							if err == nil && bytes.Equal(b, encodeCertPEM(iss.DER)) {
 								return nil
 							}
 						}

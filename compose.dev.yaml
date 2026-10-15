@@ -5,6 +5,9 @@ services:
       dockerfile: Containerfile
     image: netanchor:dev
     container_name: netanchor
+    # Rootless podman otherwise rewrites the source address of SCEP requests to the
+    # bridge gateway, which breaks shared-challenge source ranges. Requires pasta.
+    network_mode: pasta
     restart: unless-stopped
     ports:
       - "${NETANCHOR_HTTPS_PORT:-8443}:8443"

@@ -26,16 +26,23 @@ type scepState struct {
 	CA         string
 	AllowDES   bool // single-DES request envelopes, for IOS-XE; off by default
 	Challenges []scepChallenge
+	Shared     []scepSharedChallenge
 }
 type scepChallenge struct {
-	Hash        string
-	CA          string
-	Profile     CertTemplate
-	DNS         []string
-	IPs         []net.IP
-	Days        int
-	Expires     time.Time
-	Revoked     bool
+	Hash    string
+	CA      string
+	Profile CertTemplate
+	DNS     []string
+	IPs     []net.IP
+	Days    int
+	Expires time.Time
+	Revoked bool
+	scepIssuance
+}
+
+// scepIssuance is the committed result of one enrollment. Its JSON is flat
+// (embedded), so existing scep.json journals keep their layout.
+type scepIssuance struct {
 	Used        time.Time
 	Transaction string
 	RequestHash string
@@ -272,7 +279,7 @@ func (e *SCEPService) challenge(profile string, identities []string, days, hours
 		return "", err
 	}
 	pruneSCEP(&st)
-	if len(st.Challenges) >= 10000 {
+	if len(st.Challenges)+len(st.Shared) >= 10000 {
 		return "", errors.New("SCEP challenge capacity reached; wait for retention cleanup")
 	}
 	b := make([]byte, 32)
@@ -298,48 +305,69 @@ func pruneSCEP(st *scepState) {
 		}
 	}
 	st.Challenges = kept
+	pruneShared(st)
 }
 
 // Caller holds scepMu. Never resurrect deleted CAs or published/deleted certs.
 func (e *SCEPService) recover(st *scepState) error {
 	dirty := false
-	for i := range st.Challenges {
-		c := &st.Challenges[i]
-		if c.Used.IsZero() || c.Published {
-			continue
+	pending := func(ca string, iss *scepIssuance) error {
+		if iss.Used.IsZero() || iss.Published {
+			return nil
 		}
 		dirty = true
 		// Absence is not a deletion record: a missing mount, permission error,
 		// or incomplete restore must never discard committed issuance. Deletion
 		// reconciles all pending projections before removing any CA files.
-		if _, err := e.ca(c.CA); err != nil {
-			return fmt.Errorf("recovering SCEP issuance %s: %w", c.Record.Serial, err)
+		if _, err := e.ca(ca); err != nil {
+			return fmt.Errorf("recovering SCEP issuance %s: %w", iss.Record.Serial, err)
 		}
-		if err := durableWrite(e.store.certPath(c.Record.Serial), encodeCertPEM(c.DER)); err != nil {
+		return e.publish(iss)
+	}
+	for i := range st.Challenges {
+		c := &st.Challenges[i]
+		if err := pending(c.CA, &c.scepIssuance); err != nil {
 			return err
 		}
-		e.store.mu.Lock()
-		recs, err := e.store.loadIndex()
-		if err == nil {
-			found := false
-			for _, r := range recs {
-				if r.Serial == c.Record.Serial {
-					found = true
-				}
-			}
-			if !found {
-				err = e.store.saveIndex(append(recs, c.Record))
+	}
+	for i := range st.Shared {
+		c := &st.Shared[i]
+		for j := range c.Issuances {
+			if err := pending(c.CA, &c.Issuances[j].scepIssuance); err != nil {
+				return err
 			}
 		}
-		e.store.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		c.Published = true
 	}
 	if dirty {
 		return e.save(*st)
 	}
+	return nil
+}
+
+// Caller holds scepMu. publish projects one committed issuance into the
+// certificate PEM and index. It is idempotent.
+func (e *SCEPService) publish(iss *scepIssuance) error {
+	if err := durableWrite(e.store.certPath(iss.Record.Serial), encodeCertPEM(iss.DER)); err != nil {
+		return err
+	}
+	e.store.mu.Lock()
+	recs, err := e.store.loadIndex()
+	if err == nil {
+		found := false
+		for _, r := range recs {
+			if r.Serial == iss.Record.Serial {
+				found = true
+			}
+		}
+		if !found {
+			err = e.store.saveIndex(append(recs, iss.Record))
+		}
+	}
+	e.store.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	iss.Published = true
 	return nil
 }
 
@@ -386,6 +414,13 @@ func (e *SCEPService) revoke(hash string) error {
 				return errors.New("challenge already used; certificate revocation is not supported")
 			}
 			c.Revoked = true
+			return e.save(st)
+		}
+	}
+	// Revoking a shared challenge stops new issuances; issued certificates stay valid.
+	for i := range st.Shared {
+		if st.Shared[i].Hash == hash {
+			st.Shared[i].Revoked = true
 			return e.save(st)
 		}
 	}
