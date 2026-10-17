@@ -53,7 +53,7 @@ EXPOSE 8080
 
 # Bind to all interfaces inside the container so the published port is reachable.
 # TLS and authentication are ON by default; see the README for NETANCHOR_TLS,
-# NETANCHOR_TLS_HOSTS, NETANCHOR_CA_PASSPHRASE and NETANCHOR_DISABLE_AUTH.
+# NETANCHOR_TLS_HOSTS, NETANCHOR_CA_SECRETS_DIR and NETANCHOR_DISABLE_AUTH.
 ENV NETANCHOR_ADDR=0.0.0.0:8443 \
     NETANCHOR_DATA=/data
 

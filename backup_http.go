@@ -263,6 +263,20 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
 		return
 	}
+	// With an external secrets directory the passphrases are written there after
+	// commit, not into the data tree, so they are read out and removed from stage.
+	secrets, err := readStagedSecrets(stage)
+	if err != nil {
+		http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
+		return
+	}
+	external := os.Getenv("NETANCHOR_CA_SECRETS_DIR") != ""
+	if external {
+		if err := os.RemoveAll(filepath.Join(stage, caSecretsRoot)); err != nil {
+			http.Error(w, "Backup validation/staging failed: "+err.Error(), 400)
+			return
+		}
+	}
 	stopped := false
 	err = s.backupExclusive(r, func() error {
 		err := activateBackup(s.store.dir, stage, durableRename)
@@ -299,7 +313,12 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		warning = `<p><strong>Warning:</strong> the device key does not decrypt the stored credentials of these devices, so their usernames and passwords were dropped. The devices were kept. Re-enter their credentials: ` + strings.Join(names, ", ") + `.</p>`
 	}
-	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Restore complete</title><h1>Restore complete — restart required</h1><p>All instance data was replaced. Browser sessions and unused SCEP challenges were invalidated.</p>`+warning+`<p>NetAnchor is shutting down now. A container with restart: unless-stopped restarts automatically. If running a standalone binary, start it again manually.</p><p>After restart, <a href="/login">sign in with an account from the backup</a>. Your temporary account has been replaced. The HTTPS identity may have changed; verify it before accepting any browser warning. SCEP needs unlock unless a matching startup secret is configured.</p></html>`)
+	if external {
+		if err := writeSecretFiles(s.store.caSecretsDir(), secrets); err != nil {
+			warning += `<p><strong>Warning:</strong> the CA passphrase files could not be written to NETANCHOR_CA_SECRETS_DIR (` + html.EscapeString(err.Error()) + `). Encrypted CAs stay locked after restart until their passphrase files are added there.</p>`
+		}
+	}
+	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>Restore complete</title><h1>Restore complete — restart required</h1><p>All instance data was replaced. Browser sessions and unused SCEP challenges were invalidated.</p>`+warning+`<p>NetAnchor is shutting down now. A container with restart: unless-stopped restarts automatically. If running a standalone binary, start it again manually.</p><p>After restart, <a href="/login">sign in with an account from the backup</a>. Your temporary account has been replaced. The HTTPS identity may have changed; verify it before accepting any browser warning. Encrypted CAs unlock from the passphrase files in the CA secrets directory (NETANCHOR_CA_SECRETS_DIR, default ca-secrets in the data directory) that came with the backup.</p></html>`)
 }
 
 func maintenanceStatus(err error) int {

@@ -31,8 +31,9 @@ with no cgo. The rest uses the standard library:
   with dedicated RSA intermediate, administrator-authorized SANs, expiring
   single-use challenges, and durable same-request retries. See limitations below.
 - **Passphrase protection** — optionally encrypt a CA's private key at rest
-  (PBKDF2-SHA256 + AES-256-GCM). The passphrase is then required to issue or sign
-  with that CA.
+  (PBKDF2-SHA256 + AES-256-GCM). Creating a CA with a passphrase saves it to a
+  file in the CA secrets directory, so the CA unlocks at startup; otherwise the
+  passphrase is asked for each issue, sign or push, and is not stored.
 - **Authentication & roles** — login-gated UI with two roles:
   - **admin** — full control: manage CAs, issue, sign, download private keys, manage users
   - **viewer** — read-only: view and download public certificates and chains (no private keys, no issuing)
@@ -100,12 +101,32 @@ the admin account.
 | `-health` | —                     | —                  | Probe a running server's `/healthz` and exit  |
 |         | `NETANCHOR_TLS`           | `on`               | Set to `off` to serve plain HTTP (e.g. behind a TLS-terminating proxy) |
 |         | `NETANCHOR_TLS_HOSTS`     | `localhost,127.0.0.1` | SANs for the auto-generated server certificate |
-|         | `NETANCHOR_CA_PASSPHRASE` | —                  | Unlocks an encrypted root so the server cert can be issued by it at startup |
+|         | `NETANCHOR_CA_SECRETS_DIR` | `<data>/ca-secrets` | Directory with one passphrase file per encrypted CA, named by CA ID (`root` for the root). Created with mode 0600 when a CA is created with a passphrase. Read at startup; every CA whose passphrase decrypts its key is unlocked. Keeps the HTTPS certificate issued by the root after restart |
 |         | `NETANCHOR_DISABLE_AUTH`  | —                  | Set to `1` to disable login (trusted local use only) |
 |         | `NETANCHOR_SCEP_ADDR`     | —                  | Optional additional SCEP-only HTTP listener, e.g. `0.0.0.0:8080` |
 |         | `NETANCHOR_SCEP_PUBLIC_PORT` | listener port   | Port the SCEP-only listener is published on, if a port mapping changes it; used for the URL shown on the SCEP page |
-|         | `NETANCHOR_SCEP_SECRET_FILE` | —               | Mounted file containing the selected SCEP CA passphrase; unlock at startup (trailing CR/LF removed) |
 |         | `NETANCHOR_GNOI_ALLOW`    | —                  | Comma-separated CIDRs of device addresses the gNOI push page may contact, e.g. `192.0.2.0/24`. `0.0.0.0/0,::/0` allows every device; narrow it to management networks where possible. Empty refuses every target |
+
+**Upgrading to 1.11.0:** `NETANCHOR_SCEP_SECRET_FILE` and `NETANCHOR_CA_PASSPHRASE`
+were removed, with no aliases. Use the CA secrets directory instead:
+
+- **Default directory.** If `NETANCHOR_CA_SECRETS_DIR` is not set, the directory is
+  `<data>/ca-secrets`. It is created on demand, with mode 0700.
+- **Automatic files.** A CA created with a passphrase gets its passphrase file
+  written there (mode 0600), so it unlocks after a restart. The confirmation
+  message names the file. Existing CAs get no file; create one by hand for each
+  encrypted CA you want unlocked at startup: a file named with its CA ID
+  (`root` for the root, the hex ID in `/ca/view/<id>` for others) holding the
+  passphrase.
+- **External directory.** If `NETANCHOR_CA_SECRETS_DIR` points elsewhere, it must be
+  writable by NetAnchor for automatic files. If the write fails (for example a
+  read-only mount), creation still succeeds, the CA stays unlocked until restart,
+  and the message warns it will be locked after restart and names the file to
+  create manually.
+- **Read-only mounts.** Mount a hand-managed directory read-only only if you
+  create every file yourself. Mount it read-write when you want automatic files.
+- **Deleting a CA** moves its passphrase file to the trash with its key files.
+- **Backups** include these passphrase files; see `BACKUP.md`.
 
 ## SCEP for switch HTTPS and gNMI
 
@@ -229,14 +250,12 @@ inspect `git status`, the current commit/tag, and the remote before any retry; t
 local commit/tag steps are not transactionally rolled back. Never manually rerun
 blindly after a push error.
 
-Without `NETANCHOR_SCEP_SECRET_FILE`, each restart requires an explicit UI unlock,
-even for an unencrypted CA key. To auto-unlock, mount a file read-only, readable
-by container uid 65532, and set the variable to its **container path**, e.g.
-`/run/secrets/scep-passphrase`. An empty file unlocks an unencrypted key. Selection
-persists in `/data/scep.json`; the passphrase does not. Missing/wrong secrets or
-recovery errors leave enrollment locked and log a startup error; the UI remains
-available to repair/unlock it. Locking in the UI is an in-memory action; remove
-the startup secret configuration if it must remain locked after restart.
+The SCEP signing CA's key comes from `NETANCHOR_CA_SECRETS_DIR`, read at startup
+(see the configuration table). The SCEP page lists only unlocked, SCEP-capable
+intermediates; **Use for SCEP** selects one and persists the choice in
+`/data/scep.json`, never the passphrase. A missing or wrong passphrase file leaves
+the CA locked and logs its ID and reason at startup; enrollment answers 503 until
+a restart finds the right file.
 
 Run exactly **one process per data directory**, on a local filesystem supporting
 atomic rename and fsync. SCEP serializes enrollment/deletion within that process.

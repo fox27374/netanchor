@@ -20,7 +20,10 @@ const backupMagic = "NETANCHOR-BACKUP-1\n"
 const backupLimit = 64 << 20
 const backupFileLimit = 16 << 20
 
-var backupRoots = []string{"cas", "certs", "auth", "tls", "trash", "index.json", "templates.json", "scep.json", "devices.json", "definitions.json"}
+// ca-secrets is the default passphrase directory. Backups carry the passphrase
+// files of their CAs from the effective directory (see snapshotBackup); the
+// walk skips the root itself because the effective directory may be elsewhere.
+var backupRoots = []string{"cas", "certs", "auth", "tls", "trash", "index.json", "templates.json", "scep.json", "devices.json", "definitions.json", caSecretsRoot}
 
 type backupFile struct {
 	Path string
@@ -90,7 +93,7 @@ func backupPath(p string) bool {
 			return false
 		}
 		v = v[2:]
-		if v[0] != "cas" && v[0] != "certs" && strings.Join(v, "/") != "index.json" {
+		if v[0] != "cas" && v[0] != "certs" && v[0] != caSecretsRoot && strings.Join(v, "/") != "index.json" {
 			return false
 		}
 	}
@@ -101,6 +104,8 @@ func backupPath(p string) bool {
 		return len(v) == 2 && (v[1] == "users.json" || v[1] == "session.key" || v[1] == "device.key")
 	case "tls":
 		return len(v) == 2 && (v[1] == "server-cert.pem" || v[1] == "server-key.pem")
+	case caSecretsRoot:
+		return len(v) == 2 && backupCAID(v[1])
 	case "cas":
 		return len(v) == 3 && (v[1] == caRoot || v[1] == caIntermediate || ValidSerial(v[1])) && (v[2] == "cert.pem" || v[2] == "key.pem")
 	case "certs":
@@ -133,6 +138,9 @@ func snapshotBackup(s *Store) ([]byte, error) {
 	a := backupArchive{Format: 1, Application: version, Created: time.Now().UTC()}
 	total := 0
 	for _, root := range backupRoots {
+		if root == caSecretsRoot {
+			continue
+		}
 		err = filepath.WalkDir(filepath.Join(s.dir, root), func(path string, d fs.DirEntry, err error) error {
 			if errors.Is(err, os.ErrNotExist) && path == filepath.Join(s.dir, root) {
 				return nil
@@ -178,6 +186,32 @@ func snapshotBackup(s *Store) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	// Passphrase files of the live CAs, from the effective directory. Trash
+	// copies are already collected by the "trash" walk above.
+	recs, err := s.Records()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, r := range recs {
+		if (r.Kind != caRoot && r.Kind != caIntermediate) || seen[caIDOf(r)] {
+			continue
+		}
+		id := caIDOf(r)
+		seen[id] = true
+		b, err := os.ReadFile(filepath.Join(s.caSecretsDir(), id))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(b) > caSecretLimit || total+len(b) > 48<<20 || len(a.Files) >= 10000 {
+			return nil, errors.New("CA passphrase file or backup size limit exceeded")
+		}
+		total += len(b)
+		a.Files = append(a.Files, backupFile{caSecretsRoot + "/" + id, b})
 	}
 	return json.Marshal(a)
 }
@@ -306,7 +340,9 @@ func stageBackup(dir string, plain []byte, regenerate bool) (string, error) {
 		if err = os.Mkdir(filepath.Join(stage, "tls"), 0700); err != nil {
 			return "", err
 		}
-		if _, _, _, err = ensureServerCert(s, splitComma(envOr("NETANCHOR_TLS_HOSTS", "localhost,127.0.0.1")), envOr("NETANCHOR_CA_PASSPHRASE", "")); err != nil {
+		// The archive's own passphrase copies, not the instance's effective directory.
+		s.unlockSecrets(filepath.Join(stage, caSecretsRoot))
+		if _, _, _, err = ensureServerCert(s, splitComma(envOr("NETANCHOR_TLS_HOSTS", "localhost,127.0.0.1"))); err != nil {
 			return "", err
 		}
 	}

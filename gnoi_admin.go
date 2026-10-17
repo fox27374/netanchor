@@ -17,7 +17,7 @@ import (
 type pushPage struct {
 	Defs       []CertDefinition
 	NeedPass   map[string]bool // definition id: its CA key is encrypted and not unlocked
-	Unlocked   map[string]bool // definition id: its encrypted CA is the unlocked SCEP CA
+	Unlocked   map[string]bool // definition id: its encrypted CA is unlocked in memory
 	Devices    []pushDeviceRow
 	Definition string // selected definition id
 	Username   string // echoed; never the password or CA passphrase
@@ -103,15 +103,13 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	page.Defs, page.NeedPass, page.Unlocked = defs, map[string]bool{}, map[string]bool{}
-	enc := map[string]bool{}
+	cas := map[string]caOptionData{}
 	for _, ca := range s.getIssueCAs() {
-		enc[ca.CAID] = ca.KeyEnc
+		cas[ca.CAID] = ca
 	}
 	for _, def := range defs {
-		if enc[def.CAID] {
-			_, unlocked := s.scep.unlockedPassphrase(def.CAID)
-			page.NeedPass[def.ID], page.Unlocked[def.ID] = !unlocked, unlocked
-		}
+		ca := cas[def.CAID]
+		page.NeedPass[def.ID], page.Unlocked[def.ID] = ca.Locked, ca.KeyEnc && !ca.Locked
 	}
 	page.CSRF = s.backupToken(r)
 	d.Data = page
@@ -152,9 +150,6 @@ func (s *Server) pushFromForm(w http.ResponseWriter, r *http.Request, admin stri
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Duration(len(devs))*gnoiPushTimeout + time.Minute))
 	posted := deviceCreds{Username: strings.TrimSpace(r.PostForm.Get("username")), Password: r.PostForm.Get("password")}
 	caPass := r.PostForm.Get("ca_passphrase")
-	if p, ok := s.scep.unlockedPassphrase(def.CAID); ok && caPass == "" {
-		caPass = p
-	}
 	results := pushDefinitionToDevices(r.Context(), s.store, s.gnoiAllow, def, tmpl, devs, posted, caPass, admin)
 	outcome, class := pushSummary(results)
 	return results, outcome, class

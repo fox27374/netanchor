@@ -324,10 +324,10 @@ func TestSharedRecoveryAfterCrash(t *testing.T) {
 
 	// Restart: recovery publishes the committed certificate; the retry returns it.
 	f.e = newSCEPService(f.e.store)
-	if err := f.e.startup(""); err != nil {
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.selectCA(f.ca, "test-pass"); err != nil {
+	if err := f.e.selectCA(f.ca); err != nil {
 		t.Fatal(err)
 	}
 	b, status := f.e.enroll(raw, "192.0.2.10:1")

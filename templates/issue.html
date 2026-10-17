@@ -53,7 +53,7 @@
       <div>
         <label for="issuer">Issuing CA</label>
         <select id="issuer" name="issuer" data-passphrase="ca_passphrase">
-          {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
+          {{if .IssueCAs}}{{range .IssueCAs}}<option value="{{.CAID}}" data-enc="{{.Locked}}"{{if and .KeyEnc (not .Locked)}} data-unlocked="true"{{end}}>{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}{{else}}<option value="root">Root CA</option>{{end}}
         </select>
       </div>
       <div>

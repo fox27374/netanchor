@@ -63,7 +63,11 @@ func encodeCertPEM(der []byte) []byte {
 }
 
 // loadCA reads a stored CA certificate and its (possibly encrypted) private key.
+// An empty passphrase uses the CA's unlocked key when it has one.
 func loadCA(s *Store, id, passphrase string) (*x509.Certificate, crypto.Signer, error) {
+	if u, ok := s.unlocked.get(id); ok && passphrase == "" {
+		return u.cert, u.key, nil
+	}
 	certPEM, err := s.LoadCACertPEM(id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading %s CA certificate: %w", id, err)
@@ -134,6 +138,11 @@ func CreateCA(s *Store, p CAParams) (CertRecord, error) {
 	}
 	if err := s.SaveCA(caRoot, encodeCertPEM(der), keyPEM); err != nil {
 		return CertRecord{}, err
+	}
+	if p.Passphrase != "" {
+		if err := s.keepUnlocked(caRoot, der, key, p.Passphrase); err != nil {
+			return CertRecord{}, err
+		}
 	}
 
 	rec := CertRecord{
@@ -235,6 +244,11 @@ func CreateIntermediate(s *Store, p IntermediateParams) (CertRecord, error) {
 	caID := serialString(serial)
 	if err := s.SaveCA(caID, encodeCertPEM(der), keyPEM); err != nil {
 		return CertRecord{}, err
+	}
+	if p.Passphrase != "" {
+		if err := s.keepUnlocked(caID, der, key, p.Passphrase); err != nil {
+			return CertRecord{}, err
+		}
 	}
 
 	rec := CertRecord{

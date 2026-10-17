@@ -68,10 +68,10 @@ func TestSCEPRecoveryPreservesUnavailableCA(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.e = newSCEPService(f.e.store)
-			if err := f.e.startup(""); err != nil {
+			if err := f.e.startup(); err != nil {
 				t.Fatal(err)
 			}
-			if err := f.e.selectCA(f.ca, "test-pass"); err != nil {
+			if err := f.e.selectCA(f.ca); err != nil {
 				t.Fatal(err)
 			}
 			b, status := f.e.enroll(raw, "")
@@ -130,7 +130,7 @@ func TestSCEPDeleteCAReconcilesUnindexedPEM(t *testing.T) {
 		t.Errorf("committed certificate missing from trash: %v", files)
 	}
 	f.e = newSCEPService(f.e.store)
-	if err := f.e.startup(""); err != nil {
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := f.e.store.RecordBySerial(serial); ok {

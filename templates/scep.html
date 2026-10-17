@@ -28,16 +28,14 @@
 
 <div class="panel">
   <h3>Signing CA</h3>
-  <form method="post" action="/admin/scep/unlock">
+  <form method="post" action="/admin/scep/use">
     <div class="form-grid">
-      <div><label for="sca">Select and unlock CA</label>
-      <select id="sca" name="ca" required data-passphrase="spass">{{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.CA}}selected{{end}} data-enc="{{.KeyEnc}}">{{.DisplayPath}}</option>{{end}}</select></div>
-      <div><label for="spass">CA passphrase (if encrypted)</label><input id="spass" name="passphrase" type="password" autocomplete="off"></div>
+      <div><label for="sca">Unlocked SCEP intermediate</label>
+      <select id="sca" name="ca" required>{{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.CA}}selected{{end}}>{{.DisplayPath}}</option>{{end}}</select></div>
     </div>
-    <button class="btn" type="submit">Select / unlock in memory</button>
+    <button class="btn" type="submit">Use for SCEP</button>
   </form>
-  <form method="post" action="/admin/scep/lock"><button class="btn" type="submit">Lock now</button></form>
-  <p class="muted">Restart locks the key unless NETANCHOR_SCEP_SECRET_FILE points to a mounted passphrase file.</p>
+  <p class="muted">Only dedicated SCEP intermediates whose keys are unlocked are listed. Encrypted CAs unlock at startup from the passphrase files in NETANCHOR_CA_SECRETS_DIR.</p>
 </div>
 
 <div class="panel">

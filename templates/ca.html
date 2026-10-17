@@ -12,6 +12,7 @@
     <tr><th>Expires</th><td>{{$ca.Root.NotAfter.Format "2006-01-02 15:04 MST"}}</td></tr>
     <tr><th>Private key</th><td>
       {{if $ca.RootEncrypted}}<span class="pill lock">&#128274; Passphrase-protected</span>{{else}}<span class="pill">Unencrypted</span>{{end}}
+      {{if $ca.RootLocked}}<span class="pill lock">locked</span>{{end}}
     </td></tr>
   </table>
   <div class="links" style="margin-top:16px">
@@ -72,7 +73,7 @@
     <details class="adv">
       <summary>About the passphrase</summary>
       <div>
-        <p class="muted" style="font-size:12px;margin:6px 0 0">If set, you'll need this passphrase whenever you issue or sign with this CA. There is no recovery if you forget it.</p>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">If set, the CA stays locked after a restart until its passphrase file is in NETANCHOR_CA_SECRETS_DIR; until then you type the passphrase for each issue, sign or push. There is no recovery if you forget it.</p>
       </div>
     </details>
     <details class="adv">
@@ -98,6 +99,7 @@
       <tr>
         <td><a href="/ca/view/{{.CAID}}">{{.CommonName}}</a>
           {{if .KeyEnc}}<span class="pill lock" title="private key is passphrase-protected">&#128274;</span>{{end}}
+          {{if .Locked}}<span class="pill lock">locked</span>{{end}}
         </td>
         <td class="muted" data-label="Signed by">{{.SignedBy}}</td>
         <td data-label="Expires">{{.NotAfter.Format "2006-01-02 15:04 MST"}}</td>
@@ -154,7 +156,7 @@
       <div>
         <label for="i_parent">Parent CA</label>
         <select id="i_parent" name="parent" data-passphrase="i_parentpass">
-          {{range $ca.ParentOptions}}<option value="{{.CAID}}" data-enc="{{.KeyEnc}}">{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}
+          {{range $ca.ParentOptions}}<option value="{{.CAID}}" data-enc="{{.Locked}}"{{if and .KeyEnc (not .Locked)}} data-unlocked="true"{{end}}>{{.DisplayPath}}{{if .KeyEnc}} &#128274;{{end}}</option>{{end}}
         </select>
         <p class="muted" style="font-size:13px">Only the root and intermediates created with "Allow sub-CAs" are listed.</p>
       </div>

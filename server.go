@@ -257,11 +257,7 @@ func (s *Server) getIssueCAs() []caOptionData {
 	var result []caOptionData
 	for _, ca := range cas {
 		if ca.Record.Kind == caRoot || ca.Record.Kind == caIntermediate {
-			result = append(result, caOptionData{
-				CAID:        ca.ID,
-				DisplayPath: ca.Path,
-				KeyEnc:      s.store.CAKeyEncrypted(ca.ID),
-			})
+			result = append(result, s.caOption(ca.ID, ca.Path))
 		}
 	}
 	return result
@@ -313,6 +309,7 @@ func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
 type caViewData struct {
 	Root          *CertRecord
 	RootEncrypted bool
+	RootLocked    bool
 	Intermediates []intermediateViewData
 	ParentOptions []caOptionData
 }
@@ -323,13 +320,19 @@ type intermediateViewData struct {
 	SignedBy        string // parent CA path
 	NotAfter        time.Time
 	KeyEnc          bool
+	Locked          bool
 	AllowSubCALabel string
 }
 
 type caOptionData struct {
 	CAID        string
 	DisplayPath string
-	KeyEnc      bool // key is passphrase-protected, so signing needs the passphrase
+	KeyEnc      bool // key is passphrase-protected
+	Locked      bool // key is passphrase-protected and not unlocked, so signing needs the passphrase
+}
+
+func (s *Server) caOption(id, path string) caOptionData {
+	return caOptionData{CAID: id, DisplayPath: path, KeyEnc: s.store.CAKeyEncrypted(id), Locked: s.store.CALocked(id)}
 }
 
 func (s *Server) caData() caViewData {
@@ -344,6 +347,7 @@ func (s *Server) caData() caViewData {
 		if ca.Record.Kind == caRoot {
 			data.Root = ca.Record
 			data.RootEncrypted = s.store.CAKeyEncrypted(caRoot)
+			data.RootLocked = s.store.CALocked(caRoot)
 		} else if ca.Record.Kind == caIntermediate {
 			label := "No"
 			if ca.Record.AllowSubCA {
@@ -355,6 +359,7 @@ func (s *Server) caData() caViewData {
 				SignedBy:        paths[ca.ParentID],
 				NotAfter:        ca.Record.NotAfter,
 				KeyEnc:          ca.Record.KeyEnc,
+				Locked:          s.store.CALocked(ca.ID),
 				AllowSubCALabel: label,
 			})
 		}
@@ -362,11 +367,7 @@ func (s *Server) caData() caViewData {
 
 	for _, ca := range cas {
 		if ca.CanSignSubCA {
-			data.ParentOptions = append(data.ParentOptions, caOptionData{
-				CAID:        ca.ID,
-				DisplayPath: ca.Path,
-				KeyEnc:      s.store.CAKeyEncrypted(ca.ID),
-			})
+			data.ParentOptions = append(data.ParentOptions, s.caOption(ca.ID, ca.Path))
 		}
 	}
 
@@ -450,7 +451,11 @@ func (s *Server) handleCreateRoot(w http.ResponseWriter, r *http.Request) {
 		s.caError(w, r, err.Error())
 		return
 	}
-	s.redirectCASuccess(w, r, "Root CA created", "Your root CA is ready. You can now issue certificates, sign CSRs, and optionally create an intermediate CA.")
+	body := "Your root CA is ready. You can now issue certificates, sign CSRs, and optionally create an intermediate CA."
+	if pass != "" {
+		body += " " + s.store.passphraseNote(caRoot)
+	}
+	s.redirectCASuccess(w, r, "Root CA created", body)
 }
 
 func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request) {
@@ -488,11 +493,16 @@ func (s *Server) handleCreateIntermediate(w http.ResponseWriter, r *http.Request
 		AllowSubCAs:      r.FormValue("allow_sub") == "on",
 		SCEP:             r.FormValue("scep") == "on",
 	}
-	if _, err := CreateIntermediate(s.store, p); err != nil {
+	rec, err := CreateIntermediate(s.store, p)
+	if err != nil {
 		s.caError(w, r, err.Error())
 		return
 	}
-	s.redirectCASuccess(w, r, "Intermediate CA created", "Your intermediate CA is ready. You can now choose it as the issuer when creating certificates or signing CSRs.")
+	body := "Your intermediate CA is ready. You can now choose it as the issuer when creating certificates or signing CSRs."
+	if pass != "" {
+		body += " " + s.store.passphraseNote(rec.CAID)
+	}
+	s.redirectCASuccess(w, r, "Intermediate CA created", body)
 }
 
 func (s *Server) caError(w http.ResponseWriter, r *http.Request, msg string) {

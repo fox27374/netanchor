@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,6 +61,7 @@ type Store struct {
 	mu              sync.Mutex
 	scepMu          sync.Mutex // serializes SCEP commits with CA/certificate deletion
 	deviceKey       []byte     // auth/device.key, loaded by loadOrCreateDeviceKey at startup
+	unlocked        caKeyring  // CAs unlocked in memory; see ca_unlock.go
 }
 
 func OpenStore(dir string) (*Store, error) {
@@ -646,7 +648,13 @@ func (s *Store) DeleteCA(id string) error {
 	if err != nil {
 		return err
 	}
-	return s.trash(recs, append(cas, certs...))
+	if err := s.trash(recs, append(cas, certs...)); err != nil {
+		return err
+	}
+	for _, rec := range cas {
+		s.unlocked.drop(caIDOf(rec))
+	}
+	return nil
 }
 
 // DeleteCert moves a single issued certificate (and its key) to the trash.
@@ -708,6 +716,27 @@ func (s *Store) trash(recs, removed []CertRecord) error {
 			if err != nil && !errors.Is(err, os.ErrNotExist) { // CSR certs have no key
 				return err
 			}
+		}
+	}
+
+	// A removed CA's passphrase file travels with its key, so a restore from trash
+	// brings it back. A file that cannot be moved (e.g. read-only external dir) is logged.
+	for _, r := range removed {
+		if r.Kind != caRoot && r.Kind != caIntermediate {
+			continue
+		}
+		id := caIDOf(r)
+		src := filepath.Join(s.caSecretsDir(), id)
+		if _, err := os.Lstat(src); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		dstDir := filepath.Join(dst, caSecretsRoot)
+		err := os.MkdirAll(dstDir, 0o700)
+		if err == nil {
+			err = os.Rename(src, filepath.Join(dstDir, id))
+		}
+		if err != nil {
+			log.Printf("CA %s passphrase file %s not moved to trash: %v", id, src, err)
 		}
 	}
 

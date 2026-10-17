@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -67,9 +66,6 @@ func (c scepChallenge) Status() string {
 
 type SCEPService struct {
 	store *Store
-	cert  *x509.Certificate
-	key   *rsa.PrivateKey
-	pass  string // passphrase of the unlocked CA, reused by device push
 }
 
 func durableWrite(path string, data []byte) error {
@@ -143,7 +139,9 @@ func (e *SCEPService) ca(id string) (*x509.Certificate, error) {
 	}
 	return c, nil
 }
-func (e *SCEPService) selectCA(id, password string) error {
+
+// selectCA makes an unlocked SCEP intermediate the signing CA.
+func (e *SCEPService) selectCA(id string) error {
 	e.store.scepMu.Lock()
 	defer e.store.scepMu.Unlock()
 	st, err := e.load()
@@ -154,72 +152,70 @@ func (e *SCEPService) selectCA(id, password string) error {
 	if err != nil {
 		return err
 	}
-	_, key, err := loadCA(e.store, id, password)
-	if err != nil {
+	if _, err := e.unlockedKey(id, c); err != nil {
 		return err
-	}
-	k, ok := key.(*rsa.PrivateKey)
-	if !ok || !k.PublicKey.Equal(c.PublicKey) {
-		return errors.New("CA key mismatch")
 	}
 	st.CA = id
-	if err := e.save(st); err != nil {
-		return err
-	}
-	e.cert, e.key, e.pass = c, k, password
-	return nil
+	return e.save(st)
 }
-func (e *SCEPService) startup(secretFile string) error {
+
+// startup recovers committed SCEP issuance. The CA keys come from the keyring.
+func (e *SCEPService) startup() error {
 	e.store.scepMu.Lock()
+	defer e.store.scepMu.Unlock()
 	st, err := e.load()
-	if err == nil {
-		err = e.recover(&st)
-	}
-	e.store.scepMu.Unlock()
 	if err != nil {
 		return err
 	}
-	if secretFile == "" || st.CA == "" {
-		return nil
-	}
-	b, err := os.ReadFile(secretFile)
-	if err != nil {
-		return err
-	}
-	return e.selectCA(st.CA, strings.TrimRight(string(b), "\r\n"))
+	return e.recover(&st)
 }
-func (e *SCEPService) ready(st scepState) (*x509.Certificate, error) {
+
+// unlockedKey returns the in-memory key of SCEP CA id, which must match cert c.
+func (e *SCEPService) unlockedKey(id string, c *x509.Certificate) (*rsa.PrivateKey, error) {
+	u, ok := e.store.unlocked.get(id)
+	if !ok {
+		return nil, errors.New("SCEP CA is locked")
+	}
+	k, ok := u.key.(*rsa.PrivateKey)
+	if !ok || !k.PublicKey.Equal(c.PublicKey) {
+		return nil, errors.New("CA key mismatch")
+	}
+	return k, nil
+}
+
+// ready returns the selected CA and its key, with the expiry capped by the chain.
+func (e *SCEPService) ready(st scepState) (*x509.Certificate, *rsa.PrivateKey, error) {
 	c, err := e.ca(st.CA)
 	if err != nil {
-		e.cert, e.key, e.pass = nil, nil, ""
-		return nil, err
+		return nil, nil, err
 	}
-	if e.cert == nil || e.key == nil || !bytes.Equal(c.Raw, e.cert.Raw) {
-		return nil, errors.New("SCEP CA is locked")
+	k, err := e.unlockedKey(st.CA, c)
+	if err != nil {
+		return nil, nil, err
 	}
 	// Include ancestor expiry and reject incomplete/deleted chains.
 	chain, err := e.store.IssuerChainPEM(st.CA)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for len(chain) > 0 {
 		p, rest := pem.Decode(chain)
 		if p == nil {
-			return nil, errors.New("invalid CA chain")
+			return nil, nil, errors.New("invalid CA chain")
 		}
 		chain = rest
 		a, err := x509.ParseCertificate(p.Bytes)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if time.Now().Before(a.NotBefore) || !time.Now().Before(a.NotAfter) {
-			return nil, errors.New("CA chain not currently valid")
+			return nil, nil, errors.New("CA chain not currently valid")
 		}
 		if a.NotAfter.Before(c.NotAfter) {
 			c.NotAfter = a.NotAfter
 		}
 	}
-	return c, nil
+	return c, k, nil
 }
 func hashSCEP(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
@@ -382,26 +378,6 @@ func (s *Store) reconcileSCEP() error {
 		return err
 	}
 	return e.recover(&st)
-}
-
-func (e *SCEPService) lock() {
-	e.store.scepMu.Lock()
-	defer e.store.scepMu.Unlock()
-	e.cert, e.key, e.pass = nil, nil, ""
-}
-
-// unlockedPassphrase returns the passphrase of CA id when it is the unlocked SCEP CA.
-func (e *SCEPService) unlockedPassphrase(id string) (string, bool) {
-	e.store.scepMu.Lock()
-	defer e.store.scepMu.Unlock()
-	st, err := e.load()
-	if err != nil || st.CA != id {
-		return "", false
-	}
-	if _, err := e.ready(st); err != nil {
-		return "", false
-	}
-	return e.pass, true
 }
 
 func (e *SCEPService) setAllowDES(allow bool) error {
