@@ -5,7 +5,7 @@
 <h2>Backup &amp; Restore</h2>
 <div class="panel">
   <p class="cardtitle">Encrypted full-instance backup</p>
-  <p class="muted">Includes CA keys, certificates, profiles, users, HTTPS identity and SCEP history.</p>
+  <p class="muted">Includes CA keys, certificates, templates, users, HTTPS identity and SCEP history.</p>
   <p class="muted">Choose a password of at least 12 bytes; if lost, the backup cannot be recovered.</p>
   <form method="post" action="/admin/backup">
     <input type="hidden" name="csrf" value="{{.Data}}">
@@ -17,7 +17,7 @@
     <details class="adv">
       <summary>What is included and how the password is used</summary>
       <div>
-        <p class="muted" style="margin-top:0;">A backup contains a complete snapshot of logical data: CA private keys, certificates, profiles, users, HTTPS identity, SCEP journal and history, and all trash records. Changes on both listeners pause briefly during the snapshot, then resume automatically.</p>
+        <p class="muted" style="margin-top:0;">A backup contains a complete snapshot of logical data: CA private keys, certificates, templates, users, HTTPS identity, SCEP journal and history, and all trash records. Changes on both listeners pause briefly during the snapshot, then resume automatically.</p>
         <p class="muted">Choose a unique password of at least 12 bytes (maximum 1024). A long random passphrase is recommended. The password is never stored. If lost, the backup cannot be recovered. Existing CA passphrases are still required after restore.</p>
       </div>
     </details>

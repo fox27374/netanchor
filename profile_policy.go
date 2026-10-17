@@ -14,7 +14,7 @@ import (
 
 func profileKeyUsage(p certProfile, a keyAlgo) x509.KeyUsage {
 	ku := x509.KeyUsageDigitalSignature
-	if strings.HasPrefix(string(a), "rsa") && (p == profileServer || p == profileBoth) {
+	if strings.HasPrefix(string(a), "rsa") && p.serverAuth() {
 		ku |= x509.KeyUsageKeyEncipherment
 	}
 	if p == profileCode {

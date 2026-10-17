@@ -253,7 +253,7 @@ func validateGNOIRequest(req gnoiPushRequest) error {
 		return errors.New("certificate id must be 1-64 letters, digits, '.', '-' or '_'")
 	}
 	if !allowedAlgo(req.Template, algoRSA2048) {
-		return errors.New("the selected profile does not allow RSA 2048 keys, which the device requires")
+		return errors.New("the selected template does not allow RSA 2048 keys, which the device requires")
 	}
 	if err := validateIssuePolicy(req.Template, req.CAID, req.ValidDays, algoRSA2048, req.CommonName, req.DNSNames, req.IPs, nil, nil); err != nil {
 		return err

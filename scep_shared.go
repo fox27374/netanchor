@@ -152,8 +152,8 @@ func (e *SCEPService) sharedChallenge(profile string, ranges []netip.Prefix, suf
 	e.store.mu.Lock()
 	t, ok := e.store.GetTemplate(profile)
 	e.store.mu.Unlock()
-	if !ok || t.Profile != profileServer {
-		return "", errors.New("select a TLS server profile")
+	if !ok || !t.Profile.serverAuth() {
+		return "", errors.New("select a TLS server template")
 	}
 	if days == 0 {
 		days = 365

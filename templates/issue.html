@@ -6,9 +6,9 @@
     <div class="form-grid" style="align-items:start">
     {{if .Data}}
     <div>
-    <label for="template">Certificate profile</label>
+    <label for="template">Certificate template</label>
     <select id="template" name="template" required>
-      <option value="">— select profile —</option>
+      <option value="">— select template —</option>
       <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-purpose="{{.Profile}}" data-org="{{.Organization}}" data-country="{{.Country}}" data-algo="{{.Algo}}" data-algos="{{range .AllowedAlgos}}{{.}},{{end}}" data-issuers="{{joinStrings .AllowedIssuers}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}">{{.Name}}</option>{{end}}</optgroup>{{end}}
     </select>
     </div>
@@ -20,14 +20,14 @@
     </div>
 
     <details class="adv">
-      <summary>What a certificate profile determines</summary>
+      <summary>What a certificate template determines</summary>
       <div>
-        <p class="muted" style="font-size:12px;margin:0">The selected profile determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
+        <p class="muted" style="font-size:12px;margin:0">The selected template determines certificate purpose, permitted identities, keys, issuers, and validity limits.</p>
       </div>
     </details>
 
     <div class="san-grid">
-    <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server profiles)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>
+    <div data-san-type="dns"><label for="dns_sans">DNS SANs (DNS or IP required for server templates)</label><textarea id="dns_sans" name="dns_sans" placeholder="example.local"></textarea></div>
     <div data-san-type="ip"><label for="ip_sans">IP SANs</label><textarea id="ip_sans" name="ip_sans" placeholder="192.0.2.1"></textarea></div>
     <div data-san-type="email"><label for="email_sans">Email SANs (required for S/MIME)</label><textarea id="email_sans" name="email_sans" placeholder="alice@example.com"></textarea></div>
     <div data-san-type="uri"><label for="uri_sans">URI SANs</label><textarea id="uri_sans" name="uri_sans" placeholder="spiffe://example.org/service/web"></textarea></div>
@@ -59,7 +59,7 @@
       <div>
         <label for="algo">Key algorithm</label>
         <select id="algo" name="algo">
-          <option value="">Profile default</option>
+          <option value="">Template default</option>
           <option value="ecp256">ECDSA P-256 (recommended)</option>
           <option value="ecp384">ECDSA P-384</option>
           <option value="rsa2048">RSA 2048</option>
@@ -69,7 +69,7 @@
     </div>
 
     <label for="valid_days">Validity (days)</label>
-    <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
+    <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Template default">
 
     <div class="form-narrow">
       <label for="ca_passphrase">Issuing CA passphrase</label>

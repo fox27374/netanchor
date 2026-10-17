@@ -227,6 +227,19 @@ func TestSCEPEnrollmentRetryRestartConcurrency(t *testing.T) {
 	}
 }
 
+func TestSCEPServerClientTemplate(t *testing.T) {
+	f := newSCEPFixture(t)
+	secret, err := f.e.challenge("builtin:Server-Client", []string{"switch.example.net"}, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, status := f.e.enroll(f.request(t, f.csr(t, secret, nil)).Raw, "")
+	cert := f.response(t, raw, status, true)
+	if len(cert.ExtKeyUsage) != 2 || cert.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || cert.ExtKeyUsage[1] != x509.ExtKeyUsageClientAuth {
+		t.Fatalf("wrong certificate purpose: %v", cert.ExtKeyUsage)
+	}
+}
+
 func TestSCEPAuthorizationAndBounds(t *testing.T) {
 	f := newSCEPFixture(t)
 	secret := f.challenge(t)

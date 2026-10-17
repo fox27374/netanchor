@@ -99,7 +99,11 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err == nil && secret == "" {
-			http.Redirect(w, r, "/admin/scep", http.StatusSeeOther)
+			target := "/admin/scep"
+			if a := r.PathValue("action"); a == "revoke" || a == "delete" {
+				target += "#challenges" // keep the table in view after a row action
+			}
+			http.Redirect(w, r, target, http.StatusSeeOther)
 			return
 		}
 	}
@@ -132,7 +136,7 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 		d.Error = loadErr.Error()
 	}
 	for _, p := range append(builtinTemplates(), custom...) {
-		if p.Profile == profileServer {
+		if p.Profile.serverAuth() {
 			v.Profiles = append(v.Profiles, p)
 		}
 	}

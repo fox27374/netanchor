@@ -1316,7 +1316,7 @@ func (s *Server) handleTemplateDuplicate(w http.ResponseWriter, r *http.Request)
 	}
 	source, ok := builtinByName(r.FormValue("source"))
 	if !ok {
-		s.templatesPage(w, r, "Unknown built-in profile.")
+		s.templatesPage(w, r, "Unknown built-in template.")
 		return
 	}
 	// Pick the first free "Copy-<name>" (then -2, -3, ...) so repeated duplicates don't collide.

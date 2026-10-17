@@ -388,8 +388,8 @@ func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 				return fail("challenge expired")
 			case !allowedSCEPIdentities(msg.CSR, *c):
 				return fail(fmt.Sprintf("CSR SANs (DNS %v, IP %v, email/URI %d) not all authorized by the challenge (DNS %v, IP %v)", msg.CSR.DNSNames, msg.CSR.IPAddresses, len(msg.CSR.EmailAddresses)+len(msg.CSR.URIs), c.DNS, c.IPs))
-			case c.Profile.Name == "" || c.Profile.Profile != profileServer:
-				return fail("challenge profile is not a server profile")
+			case c.Profile.Name == "" || !c.Profile.Profile.serverAuth():
+				return fail("challenge template does not have the TLS server purpose")
 			}
 			authorizedCSR := *msg.CSR
 			authorizedCSR.DNSNames, authorizedCSR.IPAddresses = c.DNS, c.IPs
