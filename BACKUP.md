@@ -10,7 +10,7 @@ the `.nab` download. The password is used only for this request and is not saved
 
 Included: root and intermediate CA certificates and private keys (existing CA
 encryption is preserved), issued certificates and keys, metadata index, custom
-certificate profiles, users/password hashes, HTTPS certificate and key, session
+certificate templates, users/password hashes, HTTPS certificate and key, session
 key, device credential key, authoritative SCEP journal including challenge/issuance history, all
 trash records and their certificate/key files, and devices with their last
 certificate snapshot and encrypted credentials (`devices.json`).
@@ -35,7 +35,7 @@ All complete HTTP operations on both the GUI and optional SCEP-only listener
 participate in one process-wide barrier. Backup waits for in-flight operations,
 briefly stops new operations, reconciles committed but unpublished SCEP issuance,
 and copies the snapshot. Ordinary operations resume before password derivation,
-encryption and download. This includes GET handlers that can migrate profiles.
+encryption and download. This includes GET handlers that can migrate templates.
 Maintenance acquisition is cancelable and waits at most five seconds. While it
 waits, new GUI and SCEP requests continue normally; a busy instance returns HTTP
 503 instead of queuing an exclusive lock behind slow requests. Retry when traffic
@@ -106,7 +106,7 @@ fields/file paths, traversal, unexpected paths, and unsupported format versions.
 Limits are fixed in this release: 64 MiB plaintext manifest (encrypted file adds
 63 bytes), 48 MiB total logical file contents, 16 MiB per logical file, 10,000 file
 entries, 1 MiB per certificate/HTTPS chain, 64 KiB per private key, and a maximum
-64 intermediate ancestors. Collection/schema limits also bound users, profiles,
+64 intermediate ancestors. Collection/schema limits also bound users, templates,
 index records and SCEP challenges at 10,000 each. This targets small internal PKIs;
 larger instances need an offline stopped-volume backup. JSON/base64, encryption
 and validation use bounded in-memory buffers; allow approximately **512 MiB free
@@ -119,7 +119,7 @@ temporary upload space. Existing data is retained by rename for rollback, not
 copied. Storage errors during staging leave the live instance untouched.
 Use a local filesystem supporting atomic rename and file/directory fsync.
 
-Validation checks users/roles/password-hash bounds, profiles, index/file coverage,
+Validation checks users/roles/password-hash bounds, templates, index/file coverage,
 certificate serials/validity/CA flags/issuer signatures and chains, unencrypted
 private-key matches, HTTPS identity, trash records and available issuers, and
 SCEP journal/projection consistency. Encrypted CA keys are checked for a supported

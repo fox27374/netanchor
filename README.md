@@ -24,7 +24,7 @@ with no cgo. The rest uses the standard library:
   files move to `<data>/trash/<timestamp>/` with an `index.json` of the removed
   records, so a manual restore is possible. There is no revocation/CRL.
 - **Issue certificates** — generates a key pair and signs a leaf cert, with
-  Subject Alternative Names (DNS + IP, auto-detected) and server/client/both profiles
+  Subject Alternative Names (DNS + IP, auto-detected) and server/client/both purposes
 - **Sign CSRs** — paste PEM or upload a file; the request signature is verified
   before signing, and the requester keeps their own private key
 - **SCEP enrollment** — immediate switch HTTPS/gNMI serverAuth certificates,
@@ -48,11 +48,12 @@ with no cgo. The rest uses the standard library:
 - **HTTPS by default** — the GUI is served over TLS. The server certificate is
   issued by your own root CA when one is available (import the root and the GUI
   is trusted), otherwise it's self-signed.
-- **Certificate profiles** — choose a built-in TLS server, TLS client, dual-use,
-  code-signing, or S/MIME template when issuing or signing a CSR. The server
-  enforces the selected purpose, identity/SAN rules, allowed keys and issuers,
+- **Certificate templates** — choose a built-in TLS server, TLS client, dual-use,
+  code-signing, or S/MIME template when issuing or signing a CSR. Each template
+  has a purpose (server, client, server + client, code signing, S/MIME). The
+  server enforces that purpose, identity/SAN rules, allowed keys and issuers,
   and validity maximum. Admins can duplicate built-ins or create custom
-  profiles; existing templates are migrated. Issued certificates retain a
+  templates; older template records are migrated. Issued certificates retain a
   snapshot of the policy used, visible on the dashboard and details page.
 - **Certificate details page** — full inspection with Common Name and SANs shown
   up front, plus issuer, validity, key usages, algorithms, and SHA-256/SHA-1
@@ -124,22 +125,23 @@ the admin account.
    root trust anchor. Compare these against the certificates received by the
    switch before accepting its bootstrap authentication prompt. GetCACert and
    GetCACaps are unauthenticated; HTTP CMS protection depends on this bootstrap.
-4. Create a challenge bound to that CA, a TLS server profile, and the exact DNS/IP
-   SANs used to connect to the switch. Copy the random secret from the one-time
-   response. Only its SHA-256 hash is persisted; losing it requires a new challenge.
-   Unused challenges can be revoked in the UI.
+4. Create a challenge bound to that CA, a template with the Server or
+   Server + Client purpose, and the exact DNS/IP SANs used to connect to the
+   switch. Copy the random secret from the one-time response. Only its SHA-256
+   hash is persisted; losing it requires a new challenge. Unused challenges
+   can be revoked in the UI.
 5. Enroll using `/scep` (IOS-XE requests `/scep/pkiclient.exe`), `/scep/cgi-bin/pkiclient.exe`, or
    `/cgi-bin/pkiclient.exe`. The normal GUI listener also serves these public
    protocol paths. The optional `NETANCHOR_SCEP_ADDR` listener is plain HTTP and
    serves **only SCEP**, never the UI, setup, login, admin routes, or health probe.
 
 The challenge defaults to 24 hours and has a seven-day maximum. Certificate
-validity defaults to 365 days, capped by the profile maximum and the entire
-issuer chain's expiry. The profile is snapshotted at challenge creation; later
-profile edits do not alter outstanding authorization (revoke and recreate it).
+validity defaults to 365 days, capped by the template maximum and the entire
+issuer chain's expiry. The template is snapshotted at challenge creation; later
+template edits do not alter outstanding authorization (revoke and recreate it).
 Issued SANs are **exactly the administrator-authorized DNS/IP identities**, even
 when absent or partial in the CSR. Extra SANs, email/URI SANs, CA privileges,
-conflicting EKUs, invalid signatures and keys outside the profile are rejected.
+conflicting EKUs, invalid signatures and keys outside the template are rejected.
 The CSR subject/CN is retained, but is not used to authorize SANs. Issuances stay
 `kind=csr` with `provenance=scep` and a dashboard badge; device keys never leave
 the device.
@@ -148,7 +150,7 @@ the device.
 
 A **shared challenge** is one reusable secret for many switches in fixed address
 ranges, when a per-device challenge per switch is impractical. Create it on the
-SCEP page with a server profile, one or more IPv4/IPv6 CIDR ranges, optional DNS
+SCEP page with a server template, one or more IPv4/IPv6 CIDR ranges, optional DNS
 suffixes, a certificate lifetime, and an expiry of 1 to 365 days. The secret is
 shown once and stored only as a hash. Per-device challenges keep working alongside
 it. Revoking a shared challenge stops new enrollments; certificates already issued
@@ -328,7 +330,7 @@ gNOI Certificate Management (`Admin > Push to device (gNOI)`). NetAnchor only ma
 outbound gRPC connections; it opens no new listener.
 
 - The device generates an RSA 2048 key and CSR (`Install` stream, `GenerateCSR`).
-  NetAnchor signs the CSR under the selected CA and profile, using the normal
+  NetAnchor signs the CSR under the selected CA and template, using the normal
   sign-CSR rules. SANs come from the form, and SANs and extensions in the device CSR
   are ignored. The chain is sent with `LoadCertificate`. No private key exists in
   NetAnchor.
