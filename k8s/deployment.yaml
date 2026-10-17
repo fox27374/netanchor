@@ -37,8 +37,11 @@ spec:
             # TLS is terminated at the Gateway; the app serves plain HTTP.
             - name: NETANCHOR_TLS
               value: "off"
-            # To unlock an encrypted root at startup, add NETANCHOR_CA_PASSPHRASE
-            # from a Secret (secretKeyRef). Not needed with TLS off.
+            # Encrypted CAs unlock at startup from one passphrase file per CA ID (root for the root).
+            # Without NETANCHOR_CA_SECRETS_DIR the files live in /data/ca-secrets, which is written
+            # automatically when a CA is created with a passphrase. To use a Secret instead, mount it
+            # and point NETANCHOR_CA_SECRETS_DIR at it. Automatic saves need a writable mount, so a
+            # read-only Secret works only if you create each file yourself.
           readinessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 10

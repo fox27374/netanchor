@@ -11,7 +11,7 @@ func TestCSRSigningWithoutPersistence(t *testing.T) {
 	csr := f.csr(t, "test-challenge", []string{"switch.example.net"})
 	profile, _ := builtinByName("TLS-Server")
 	p := SignCSRParams{IssuerID: f.ca, ValidDays: 365, Template: profile, TemplateName: profile.Name}
-	rec, der, err := signCSRWithoutPersistence(csr, p, f.e.cert, f.e.key, true)
+	rec, der, err := signCSRWithoutPersistence(csr, p, f.caCert, f.caKey, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestCSRSigningWithoutPersistence(t *testing.T) {
 		t.Fatal("signing helper persisted PEM")
 	}
 	csr.Signature[0] ^= 1
-	if _, _, err := signCSRWithoutPersistence(csr, p, f.e.cert, f.e.key, true); err == nil {
+	if _, _, err := signCSRWithoutPersistence(csr, p, f.caCert, f.caKey, true); err == nil {
 		t.Fatal("helper skipped CSR signature verification")
 	}
 }

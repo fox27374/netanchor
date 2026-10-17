@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
@@ -404,7 +405,7 @@ func (e *SCEPService) sharedNames(csr *x509.CertificateRequest, suffixes []strin
 
 // enrollShared returns the certificate DER for a shared challenge, or a refusal
 // reason. Caller holds scepMu; ca is the selected, usable CA.
-func (e *SCEPService) enrollShared(st *scepState, c *scepSharedChallenge, msg *scep.PKIMessage, rh, sh, remote string, ca *x509.Certificate) (der []byte, reason string, err error) {
+func (e *SCEPService) enrollShared(st *scepState, c *scepSharedChallenge, msg *scep.PKIMessage, rh, sh, remote string, ca *x509.Certificate, key *rsa.PrivateKey) (der []byte, reason string, err error) {
 	now := time.Now()
 	tx := string(msg.TransactionID)
 	switch {
@@ -460,7 +461,7 @@ func (e *SCEPService) enrollShared(st *scepState, c *scepSharedChallenge, msg *s
 	authorized.DNSNames = names
 	authorized.IPAddresses = []net.IP{src.AsSlice()}
 	authorized.EmailAddresses, authorized.URIs = nil, nil
-	rec, der, err := signCSRWithoutPersistence(&authorized, SignCSRParams{IssuerID: st.CA, ValidDays: c.Days, Template: c.Profile, TemplateName: c.Profile.Name}, ca, e.key, true)
+	rec, der, err := signCSRWithoutPersistence(&authorized, SignCSRParams{IssuerID: st.CA, ValidDays: c.Days, Template: c.Profile, TemplateName: c.Profile.Name}, ca, key, true)
 	if err != nil {
 		return nil, "signing: " + err.Error(), nil
 	}

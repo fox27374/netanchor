@@ -63,11 +63,11 @@ func encryptForSCEP(t *testing.T, plain []byte, ca *x509.Certificate, oid asn1.O
 func TestSCEPAcceptsTripleDESButNotDES(t *testing.T) {
 	f := newSCEPFixture(t)
 	csr := f.csr(t, f.challenge(t), nil)
-	single := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
+	single := encryptForSCEP(t, csr.Raw, f.caCert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
 	if _, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq), ""); s != 400 {
 		t.Fatalf("single DES accepted while switched off, status %d", s)
 	}
-	triple := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 24, des.NewTripleDESCipher)
+	triple := encryptForSCEP(t, csr.Raw, f.caCert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 24, des.NewTripleDESCipher)
 	body, s := f.e.enroll(f.signedEnvelope(t, triple, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq), "")
 	if s != 200 {
 		t.Fatalf("3DES refused, status %d", s)
@@ -76,7 +76,7 @@ func TestSCEPAcceptsTripleDESButNotDES(t *testing.T) {
 		t.Fatalf("3DES enrollment not successful: %v %+v", err, m)
 	}
 	// A 3DES envelope whose RSA-wrapped key is the wrong length is refused.
-	short := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 8, des.NewCipher)
+	short := encryptForSCEP(t, csr.Raw, f.caCert, pkcs7.OIDEncryptionAlgorithmDESEDE3CBC, 8, des.NewCipher)
 	if _, s := f.e.enroll(f.signedEnvelope(t, short, pkcs7.OIDDigestAlgorithmSHA256, false, scep.PKCSReq), ""); s != 400 {
 		t.Fatalf("3DES envelope with an 8-byte key accepted, status %d", s)
 	}
@@ -88,7 +88,7 @@ func TestSCEPSingleDESWhenSwitchedOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	csr := f.csr(t, f.challenge(t), nil)
-	single := encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
+	single := encryptForSCEP(t, csr.Raw, f.caCert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
 	body, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq), "")
 	if s != 200 {
 		t.Fatalf("single DES refused while switched on, status %d", s)
@@ -121,7 +121,7 @@ func TestSCEPSingleDESWhenSwitchedOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	csr = f.csr(t, f.challenge(t), nil)
-	single = encryptForSCEP(t, csr.Raw, f.e.cert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
+	single = encryptForSCEP(t, csr.Raw, f.caCert, pkcs7.OIDEncryptionAlgorithmDESCBC, 8, des.NewCipher)
 	if _, s := f.e.enroll(f.signedEnvelope(t, single, pkcs7.OIDDigestAlgorithmSHA512, false, scep.PKCSReq), ""); s != 400 {
 		t.Fatalf("single DES accepted after switching off, status %d", s)
 	}

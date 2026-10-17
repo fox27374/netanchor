@@ -46,7 +46,7 @@ func backupFixture(t *testing.T) (*Store, *Auth) {
 	backupCheck(t, a.AddUser("admin", "admin password", RoleAdmin))
 	_, err = CreateCA(s, CAParams{CommonName: "backup root", Algo: algoECP256, ValidDays: 3650})
 	backupCheck(t, err)
-	_, _, _, err = ensureServerCert(s, []string{"source.example"}, "")
+	_, _, _, err = ensureServerCert(s, []string{"source.example"})
 	backupCheck(t, err)
 	return s, a
 }
@@ -57,7 +57,7 @@ func TestBackupFullRoundTrip(t *testing.T) {
 	a, err := NewAuth(s, false, true)
 	backupCheck(t, err)
 	backupCheck(t, a.AddUser("restored-admin", "admin password", RoleAdmin))
-	_, _, _, err = ensureServerCert(s, []string{"source.example"}, "")
+	_, _, _, err = ensureServerCert(s, []string{"source.example"})
 	backupCheck(t, err)
 	profile, _ := builtinByName("TLS-Server")
 	profile.Name = "custom-server"
@@ -137,11 +137,14 @@ func TestBackupFullRoundTrip(t *testing.T) {
 				backupCheck(t, cert.VerifyHostname("source.example"))
 			}
 			e := newSCEPService(dst)
-			backupCheck(t, e.startup(""))
-			if e.key != nil {
-				t.Fatal("restored SCEP automatically unlocked")
+			backupCheck(t, e.startup())
+			if _, ok := dst.unlocked.get(f.ca); ok {
+				t.Fatal("restored CA automatically unlocked")
 			}
-			backupCheck(t, e.selectCA(f.ca, "test-pass"))
+			secrets := t.TempDir()
+			backupCheck(t, os.WriteFile(filepath.Join(secrets, f.ca), []byte("test-pass\n"), 0o600))
+			dst.unlockSecrets(secrets)
+			backupCheck(t, e.selectCA(f.ca))
 			st, err := e.load()
 			backupCheck(t, err)
 			for _, c := range st.Challenges {
@@ -816,7 +819,7 @@ func TestBackupRealProcessShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackupProcessHelper$")
-	cmd.Env = append(os.Environ(), "NETANCHOR_BACKUP_TEST_MODE=serve", "NETANCHOR_BACKUP_TEST_DIR="+dir, "NETANCHOR_BACKUP_TEST_ADDR="+addr, "NETANCHOR_TLS=off", "NETANCHOR_DISABLE_AUTH=1", "NETANCHOR_SCEP_ADDR=", "NETANCHOR_SCEP_SECRET_FILE=")
+	cmd.Env = append(os.Environ(), "NETANCHOR_BACKUP_TEST_MODE=serve", "NETANCHOR_BACKUP_TEST_DIR="+dir, "NETANCHOR_BACKUP_TEST_ADDR="+addr, "NETANCHOR_TLS=off", "NETANCHOR_DISABLE_AUTH=1", "NETANCHOR_SCEP_ADDR=")
 	var logs bytes.Buffer
 	cmd.Stdout = &logs
 	cmd.Stderr = &logs

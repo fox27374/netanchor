@@ -59,10 +59,8 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch r.PathValue("action") {
-		case "unlock":
-			err = s.scep.selectCA(r.PostForm.Get("ca"), r.PostForm.Get("passphrase"))
-		case "lock":
-			s.scep.lock()
+		case "use":
+			err = s.scep.selectCA(r.PostForm.Get("ca"))
 		case "des":
 			err = s.scep.setAllowDES(r.PostForm.Get("allow") == "on")
 		case "revoke":
@@ -122,7 +120,7 @@ func (s *Server) handleSCEPAdmin(w http.ResponseWriter, r *http.Request) {
 		d.Error = loadErr.Error()
 	}
 	for _, ca := range s.getIssueCAs() {
-		if _, err := s.scep.ca(ca.CAID); err == nil {
+		if _, err := s.scep.ca(ca.CAID); err == nil && !ca.Locked {
 			v.CAs = append(v.CAs, ca)
 			if ca.CAID == v.CA {
 				v.CAName = ca.DisplayPath

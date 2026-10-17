@@ -65,6 +65,7 @@ func main() {
 	if err := store.loadOrCreateDeviceKey(); err != nil {
 		log.Fatalf("device credential key: %v", err)
 	}
+	store.unlockSecrets(store.caSecretsDir())
 
 	authEnabled := !envBool("NETANCHOR_DISABLE_AUTH")
 
@@ -79,8 +80,8 @@ func main() {
 		log.Fatalf("NETANCHOR_GNOI_ALLOW: %v", err)
 	}
 	srv.gnoiAllow = gnoiAllow
-	if err := srv.scep.startup(os.Getenv("NETANCHOR_SCEP_SECRET_FILE")); err != nil {
-		log.Printf("SCEP startup recovery/unlock failed; enrollment remains locked: %v", err)
+	if err := srv.scep.startup(); err != nil {
+		log.Printf("SCEP startup recovery failed; enrollment remains locked: %v", err)
 	}
 	var scepServer *http.Server
 	if addr := os.Getenv("NETANCHOR_SCEP_ADDR"); addr != "" {
@@ -99,7 +100,7 @@ func main() {
 	if tlsEnabled {
 		hosts := splitComma(envOr("NETANCHOR_TLS_HOSTS", "localhost,127.0.0.1"))
 		var descr string
-		certFile, keyFile, descr, err = ensureServerCert(store, hosts, envOr("NETANCHOR_CA_PASSPHRASE", ""))
+		certFile, keyFile, descr, err = ensureServerCert(store, hosts)
 		if err != nil {
 			log.Fatalf("preparing TLS certificate: %v", err)
 		}

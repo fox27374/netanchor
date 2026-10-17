@@ -9,7 +9,7 @@ the `.nab` download. The password is used only for this request and is not saved
 ## Included and excluded
 
 Included: root and intermediate CA certificates and private keys (existing CA
-encryption is preserved), issued certificates and keys, metadata index, custom
+encryption is preserved), **the CA passphrase files** (see below), issued certificates and keys, metadata index, custom
 certificate templates, users/password hashes, HTTPS certificate and key, session
 key, device credential key, authoritative SCEP journal including challenge/issuance history, all
 trash records and their certificate/key files, and devices with their last
@@ -24,12 +24,22 @@ credentials that do not decrypt with it are dropped. The restore keeps the devic
 the restore page lists the affected devices. Re-enter those credentials before pushing
 or testing.
 
+**CA passphrases are in the backup, in plaintext.** For each CA in the backup that
+has a passphrase file in the effective CA secrets directory (`NETANCHOR_CA_SECRETS_DIR`,
+default `<data>/ca-secrets`), the backup stores that file under `ca-secrets/<id>`.
+Trashed CAs keep theirs under their trash entry. The backup password protects both
+the CA private keys and these passphrases, so the password is the only protection
+for them: anyone who can open a backup can unlock its CAs. Restore writes the files
+to the destination's secrets directory, so the restored CAs unlock at startup.
+If the destination uses an external `NETANCHOR_CA_SECRETS_DIR` that is not writable,
+the restore still completes and its restart page warns which files were not written.
+
 Excluded: temporary files, restore recovery/staging material, in-memory tools
 results and notifications, environment variables, compose/Kubernetes/proxy
-configuration, external mounted secrets, and other files outside the application's
-logical data paths. Deployment configuration and SCEP startup passphrase files
-must be managed separately. Unknown files **inside** logical directories cause
-backup to fail rather than silently omit potentially important data.
+configuration, other external mounted secrets, and other files outside the
+application's logical data paths. Deployment configuration must be managed
+separately. Unknown files **inside** logical directories cause backup to fail
+rather than silently omit potentially important data.
 
 All complete HTTP operations on both the GUI and optional SCEP-only listener
 participate in one process-wide barrier. Backup waits for in-flight operations,
@@ -64,8 +74,8 @@ required; external writers and live volume copies are not supported.
 4. Normally preserve the archived HTTPS identity. For a new destination, check
    **Regenerate HTTPS identity** to generate a new key/certificate using the
    destination's `NETANCHOR_TLS_HOSTS`. It is issued by the restored root if the
-   root is unencrypted or `NETANCHOR_CA_PASSPHRASE` can unlock it; otherwise it is
-   self-signed. Generation happens in staging before activation. Normal startup
+   root is unencrypted or its passphrase (from the backup or the destination's
+   secrets directory) unlocks it; otherwise it is self-signed. Generation happens in staging before activation. Normal startup
    expiry renewal still applies even when preserving an identity.
 5. Successful restore displays a restart page and **shuts down the process**.
    `compose.yaml` uses `restart: unless-stopped`, which starts it again; Kubernetes
@@ -83,9 +93,11 @@ unused in an older snapshot but have since been consumed or revoked elsewhere.
 Used history and certificates are retained, and committed unpublished issuance is
 reconciled in staging. Used same-request retries keep their existing retention
 rules; deliberately deleted certificates stay deleted. Create fresh challenges
-after restore. SCEP starts locked unless the destination has a matching
-`NETANCHOR_SCEP_SECRET_FILE`. Existing CA passphrases still apply and are never
-replaced by the backup password.
+after restore. Encrypted CAs, SCEP included, stay locked unless the destination's
+`NETANCHOR_CA_SECRETS_DIR` has a matching passphrase file. A backup restores the
+passphrase files it carries, so CAs that were unlocked by file in the source unlock
+again after restart; an external directory must be writable for that. The backup
+password is never used as a CA passphrase.
 
 Restoring an older snapshot removes later records, users, policy edits and trash.
 It **does not revoke certificates already distributed**. Those certificates may

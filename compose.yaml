@@ -27,20 +27,22 @@ services:
       NETANCHOR_ADDR: "0.0.0.0:8443"
       NETANCHOR_DATA: "/data"
       # NETANCHOR_SCEP_ADDR: "0.0.0.0:8080"
-      # NETANCHOR_SCEP_SECRET_FILE: "/run/secrets/scep-passphrase"
+      # NETANCHOR_CA_SECRETS_DIR: "/run/secrets/ca"  # default /data/ca-secrets; one passphrase file per encrypted CA, named by CA ID. Must be writable to auto-save passphrases of new CAs.
       # TLS is on by default. List every name/IP clients will use so they appear
       # in the auto-generated server certificate's SANs.
       NETANCHOR_TLS_HOSTS: "localhost,127.0.0.1"
       # NETANCHOR_TLS: "off"            # serve plain HTTP (e.g. behind a TLS proxy)
-      # NETANCHOR_CA_PASSPHRASE: "..."  # unlock an encrypted root to issue the server cert
       # NETANCHOR_DISABLE_AUTH: "1"     # disable login (trusted local use only)
 
     volumes:
       # Named volume holds the CA(s), issued certs, TLS server cert,
       # session-signing key, and users.json.
       - netanchor-data:/data
-      # Optional startup unlock; host file must be readable by uid 65532.
-      # - ./scep-passphrase:/run/secrets/scep-passphrase:ro,Z
+      # Optional external CA passphrase directory (use with NETANCHOR_CA_SECRETS_DIR above).
+      # Must be readable and writable by uid 65532 so new CAs' passphrases are saved there;
+      # a read-only mount only works if you create each passphrase file yourself.
+      # Backups carry these passphrases in plaintext inside the encrypted archive.
+      # - ./ca-secrets:/run/secrets/ca:rw,Z
 
     # The image already runs as non-root (uid 65532); this enforces it at runtime.
     user: "65532:65532"

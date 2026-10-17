@@ -324,19 +324,19 @@ func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 	if err != nil {
 		return nil, 503
 	}
-	ca, err := e.ready(st)
+	ca, key, err := e.ready(st)
 	if err != nil {
 		log.Printf("scep PKIOperation unavailable: %v", err)
 		return nil, 503
 	}
-	msg, signer, singleDES, err := parseSCEP(raw, e.cert, e.key, st.AllowDES)
+	msg, signer, singleDES, err := parseSCEP(raw, ca, key, st.AllowDES)
 	if err != nil {
 		log.Printf("scep PKIOperation rejected: %v", err)
 		return nil, 400
 	}
 	fail := func(reason string) ([]byte, int) {
 		log.Printf("scep PKIOperation failed (CertRep FAILURE sent): %s", reason)
-		m, err := msg.Fail(e.cert, e.key, scep.BadRequest)
+		m, err := msg.Fail(ca, key, scep.BadRequest)
 		if err != nil {
 			return nil, 503
 		}
@@ -356,7 +356,7 @@ func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 			// global; only this path encrypts in production and it holds scepMu.
 			pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmDESCBC
 		}
-		resp, err := msg.Success(e.cert, e.key, cert)
+		resp, err := msg.Success(ca, key, cert)
 		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
 		if err != nil {
 			return nil, 503
@@ -393,7 +393,7 @@ func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 			}
 			authorizedCSR := *msg.CSR
 			authorizedCSR.DNSNames, authorizedCSR.IPAddresses = c.DNS, c.IPs
-			rec, der, err := signCSRWithoutPersistence(&authorizedCSR, SignCSRParams{IssuerID: st.CA, ValidDays: c.Days, Template: c.Profile, TemplateName: c.Profile.Name}, ca, e.key, true)
+			rec, der, err := signCSRWithoutPersistence(&authorizedCSR, SignCSRParams{IssuerID: st.CA, ValidDays: c.Days, Template: c.Profile, TemplateName: c.Profile.Name}, ca, key, true)
 			if err != nil {
 				return fail("signing: " + err.Error())
 			}
@@ -415,7 +415,7 @@ func (e *SCEPService) enroll(raw []byte, remote string) ([]byte, int) {
 		return respond(c.DER, "")
 	}
 	if i := sharedIndex(&st, h); i >= 0 {
-		der, reason, err := e.enrollShared(&st, &st.Shared[i], msg, rh, sh, remote, ca)
+		der, reason, err := e.enrollShared(&st, &st.Shared[i], msg, rh, sh, remote, ca, key)
 		switch {
 		case err != nil:
 			return nil, 503

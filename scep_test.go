@@ -32,6 +32,8 @@ type scepFixture struct {
 	ca       string
 	key      *rsa.PrivateKey
 	identity *x509.Certificate
+	caCert   *x509.Certificate // the unlocked SCEP CA
+	caKey    *rsa.PrivateKey
 }
 
 func newSCEPFixture(t *testing.T) *scepFixture {
@@ -48,7 +50,11 @@ func newSCEPFixture(t *testing.T) *scepFixture {
 		t.Fatal(err)
 	}
 	e := newSCEPService(s)
-	if err = e.selectCA(r.CAID, "test-pass"); err != nil {
+	caCert, caKey, err := loadCA(s, r.CAID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.selectCA(r.CAID); err != nil {
 		t.Fatal(err)
 	}
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -64,7 +70,7 @@ func newSCEPFixture(t *testing.T) *scepFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &scepFixture{e: e, ca: r.CAID, key: k, identity: c}
+	return &scepFixture{e: e, ca: r.CAID, key: k, identity: c, caCert: caCert, caKey: caKey.(*rsa.PrivateKey)}
 }
 
 func (f *scepFixture) challenge(t *testing.T) string {
@@ -89,7 +95,7 @@ func (f *scepFixture) csr(t *testing.T, secret string, dns []string) *x509.Certi
 }
 func (f *scepFixture) request(t *testing.T, csr *x509.CertificateRequest) *scep.PKIMessage {
 	t.Helper()
-	m, err := scep.NewCSRRequest(csr, &scep.PKIMessage{MessageType: scep.PKCSReq, Recipients: []*x509.Certificate{f.e.cert}, SignerCert: f.identity, SignerKey: f.key})
+	m, err := scep.NewCSRRequest(csr, &scep.PKIMessage{MessageType: scep.PKCSReq, Recipients: []*x509.Certificate{f.caCert}, SignerCert: f.identity, SignerKey: f.key})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +113,7 @@ func (f *scepFixture) response(t *testing.T, raw []byte, status int, success boo
 	if len(p.Signers) != 1 || !p.Signers[0].DigestAlgorithm.Algorithm.Equal(pkcs7.OIDDigestAlgorithmSHA256) {
 		t.Fatal("response is not SHA-256 signed")
 	}
-	m, err := scep.ParsePKIMessage(raw, scep.WithCACerts([]*x509.Certificate{f.e.cert}))
+	m, err := scep.ParsePKIMessage(raw, scep.WithCACerts([]*x509.Certificate{f.caCert}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +132,7 @@ func (f *scepFixture) response(t *testing.T, raw []byte, status int, success boo
 	if err = m.DecryptPKIEnvelope(f.identity, f.key); err != nil {
 		t.Fatal(err)
 	}
-	if err = m.Certificate.CheckSignatureFrom(f.e.cert); err != nil {
+	if err = m.Certificate.CheckSignatureFrom(f.caCert); err != nil {
 		t.Fatal(err)
 	}
 	return m.Certificate
@@ -192,18 +198,23 @@ func TestSCEPEnrollmentRetryRestartConcurrency(t *testing.T) {
 	if rec.Kind != "csr" || rec.Provenance != "scep" || rec.HasKey {
 		t.Fatal("wrong provenance")
 	}
-	f.e = newSCEPService(f.e.store)
-	if err := f.e.startup(""); err != nil {
+	restarted, err := OpenStore(f.e.store.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.e = newSCEPService(restarted)
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
 	if _, s := f.e.enroll(req.Raw, ""); s != 503 {
 		t.Fatal("restart did not lock")
 	}
-	path := filepath.Join(t.TempDir(), "secret")
-	if err := os.WriteFile(path, []byte("test-pass\n"), 0600); err != nil {
+	secrets := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secrets, f.ca), []byte("test-pass\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.startup(path); err != nil {
+	restarted.unlockSecrets(secrets)
+	if err := f.e.selectCA(f.ca); err != nil {
 		t.Fatal(err)
 	}
 	raw, status = f.e.enroll(req.Raw, "")
@@ -219,7 +230,7 @@ func TestSCEPEnrollmentRetryRestartConcurrency(t *testing.T) {
 	}
 	raw, status = f.e.enroll(req.Raw, "")
 	f.response(t, raw, status, false)
-	if err := f.e.startup(""); err != nil {
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := f.e.store.RecordBySerial(rec.Serial); ok {
@@ -280,14 +291,26 @@ func TestSCEPAuthorizationAndBounds(t *testing.T) {
 	f.response(t, b, s, false)
 	secret = f.challenge(t)
 	r = f.request(t, f.csr(t, secret, nil))
-	f.e.lock()
+	f.e.store.unlocked.drop(f.ca)
 	if _, s := f.e.enroll(r.Raw, ""); s != 503 {
 		t.Fatal("locked enrollment accepted")
 	}
-	if err := f.e.selectCA(f.ca, "wrong"); err == nil {
-		t.Fatal("wrong password accepted")
+	if err := f.e.selectCA(f.ca); err == nil {
+		t.Fatal("locked CA selected")
 	}
-	if err := f.e.selectCA(f.ca, "test-pass"); err != nil {
+	secrets := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secrets, f.ca), []byte("wrong"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.e.store.unlockSecrets(secrets)
+	if err := f.e.selectCA(f.ca); err == nil {
+		t.Fatal("wrong passphrase file unlocked the CA")
+	}
+	if err := os.WriteFile(filepath.Join(secrets, f.ca), []byte("test-pass\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.e.store.unlockSecrets(secrets)
+	if err := f.e.selectCA(f.ca); err != nil {
 		t.Fatal(err)
 	}
 	b, s = f.e.enroll(r.Raw, "")
@@ -310,7 +333,7 @@ func (f *scepFixture) signedEnvelope(t *testing.T, env []byte, digest asn1.Objec
 	}
 	sd.SetDigestAlgorithm(digest)
 	if extraCert {
-		sd.AddCertificate(f.e.cert)
+		sd.AddCertificate(f.caCert)
 	}
 	attrs := []pkcs7.Attribute{
 		{Type: asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 7}, Value: "transaction"},
@@ -342,7 +365,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 	f := newSCEPFixture(t)
 	secret := f.challenge(t)
 	csr := f.csr(t, secret, nil)
-	env, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.e.cert})
+	env, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.caCert})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +389,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 	{
 		g := newSCEPFixture(t)
 		c := g.csr(t, g.challenge(t), nil)
-		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.e.cert})
+		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.caCert})
 		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
 		if err != nil {
 			t.Fatal(err)
@@ -378,7 +401,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 	for _, digest := range []asn1.ObjectIdentifier{pkcs7.OIDDigestAlgorithmSHA384, pkcs7.OIDDigestAlgorithmSHA512} {
 		g := newSCEPFixture(t)
 		c := g.csr(t, g.challenge(t), nil)
-		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.e.cert})
+		e, err := pkcs7.Encrypt(c.Raw, []*x509.Certificate{g.caCert})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -389,7 +412,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 	// Tests are deliberately nonparallel: library encryption defaults are global.
 	for _, alg := range []int{pkcs7.EncryptionAlgorithmDESCBC, pkcs7.EncryptionAlgorithmAES128GCM} {
 		pkcs7.ContentEncryptionAlgorithm = alg
-		legacy, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.e.cert})
+		legacy, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.caCert})
 		pkcs7.ContentEncryptionAlgorithm = pkcs7.EncryptionAlgorithmAES128CBC
 		if err != nil {
 			t.Fatal(err)
@@ -425,7 +448,7 @@ func TestSCEPAlgorithmAndMalformedSecurity(t *testing.T) {
 	// The outer CMS remains valid while the inner CSR proof of possession is broken.
 	bad := append([]byte(nil), csr.Raw...)
 	bad[len(bad)-1] ^= 1
-	env, err = pkcs7.Encrypt(bad, []*x509.Certificate{f.e.cert})
+	env, err = pkcs7.Encrypt(bad, []*x509.Certificate{f.caCert})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,10 +483,10 @@ func TestSCEPPartialStorageRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.e = newSCEPService(f.e.store)
-	if err := f.e.startup(""); err != nil {
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.selectCA(f.ca, "test-pass"); err != nil {
+	if err := f.e.selectCA(f.ca); err != nil {
 		t.Fatal(err)
 	}
 	b, s := f.e.enroll(r.Raw, "")
@@ -540,7 +563,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 	for _, method := range []string{"GET", "POST"} {
 		path := "/admin/scep"
 		if method == "POST" {
-			path += "/lock"
+			path += "/use"
 		}
 		if !requiresAdmin(method, path) {
 			t.Fatal("missing admin classification")
@@ -561,7 +584,7 @@ func TestSCEPHTTPAndAdminSeparation(t *testing.T) {
 	rq := httptest.NewRequest("GET", "/admin/scep", nil).WithContext(context.WithValue(context.Background(), userCtxKey, User{Role: RoleAdmin}))
 	w = httptest.NewRecorder()
 	srv.Routes().ServeHTTP(w, rq)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Select / unlock in memory") {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Use for SCEP") {
 		t.Fatalf("admin page failed: %s", w.Body.String())
 	}
 }
@@ -645,18 +668,23 @@ func TestSCEPProfileIssuerBoundsAndRetention(t *testing.T) {
 	if _, err := f.e.challenge(p.Name, []string{"switch.example.net"}, 0, 0); err == nil {
 		t.Fatal("issuer restriction ignored")
 	}
-	short, err := CreateIntermediate(f.e.store, IntermediateParams{CommonName: "Short CA", Algo: algoRSA2048, ValidDays: 1, ParentID: caRoot, SCEP: true})
+	short, err := CreateIntermediate(f.e.store, IntermediateParams{CommonName: "Short CA", Algo: algoRSA2048, ValidDays: 1, ParentID: caRoot, SCEP: true, Passphrase: "short-pass"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.selectCA(short.CAID, ""); err != nil {
+	shortCert, shortKey, err := loadCA(f.e.store, short.CAID, "")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := f.e.selectCA(short.CAID); err != nil {
+		t.Fatal(err)
+	}
+	f.caCert, f.caKey = shortCert, shortKey.(*rsa.PrivateKey)
 	secret = f.challenge(t)
 	r = f.request(t, f.csr(t, secret, nil))
 	b, s = f.e.enroll(r.Raw, "")
 	c = f.response(t, b, s, true)
-	if !c.NotAfter.Equal(f.e.cert.NotAfter) {
+	if !c.NotAfter.Equal(shortCert.NotAfter) {
 		t.Fatal("issuer expiry not applied")
 	}
 	st, _ := f.e.load()
@@ -675,7 +703,7 @@ func TestSCEPProfileIssuerBoundsAndRetention(t *testing.T) {
 	if len(st.Challenges) != 0 {
 		t.Fatal("retention cleanup failed")
 	}
-	if err := f.e.selectCA(caRoot, ""); err == nil {
+	if err := f.e.selectCA(caRoot); err == nil {
 		t.Fatal("root selected for SCEP")
 	}
 }
@@ -733,7 +761,7 @@ func TestSCEPDuplicateChallengeAndSignerBinding(t *testing.T) {
 	}
 	f.key = other // CSR key and self-signed request identity no longer match.
 	csr = f.csr(t, f.challenge(t), nil)
-	env, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.e.cert})
+	env, err := pkcs7.Encrypt(csr.Raw, []*x509.Certificate{f.caCert})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,13 +830,13 @@ func TestSCEPJournalAndIndexFailures(t *testing.T) {
 	if err := os.WriteFile(index, []byte("invalid JSON"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.startup(""); err == nil {
+	if err := f.e.startup(); err == nil {
 		t.Fatal("corrupt index recovered silently")
 	}
 	if err := os.WriteFile(index, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.e.startup(""); err != nil {
+	if err := f.e.startup(); err != nil {
 		t.Fatal(err)
 	}
 	b, s := f.e.enroll(r.Raw, "")
@@ -876,7 +904,7 @@ func TestSCEPAdminChallengeShownOnce(t *testing.T) {
 			t.Fatalf("auth separation: %d", w.Code)
 		}
 	}
-	if f.e.key == nil {
+	if _, ok := f.e.store.unlocked.get(f.ca); !ok {
 		t.Fatal("unauthorized request locked the service")
 	}
 }

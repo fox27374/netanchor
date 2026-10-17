@@ -11,13 +11,13 @@ import (
 )
 
 // ensureServerCert makes sure a usable TLS server certificate and key exist on
-// disk, generating them if missing or expired. When an (unlocked) root CA is
-// available the server certificate is issued by it — so importing the root makes
-// the GUI trusted — otherwise it falls back to a self-signed certificate.
+// disk, generating them if missing or expired. When the root CA is unlocked the
+// server certificate is issued by it — so importing the root makes the GUI
+// trusted — otherwise it falls back to a self-signed certificate.
 //
 // It returns the cert file, key file, and a short human description of how the
 // certificate was produced.
-func ensureServerCert(store *Store, hosts []string, caPassphrase string) (certFile, keyFile, descr string, err error) {
+func ensureServerCert(store *Store, hosts []string) (certFile, keyFile, descr string, err error) {
 	certFile = store.tlsCertPath()
 	keyFile = store.tlsKeyPath()
 
@@ -56,7 +56,7 @@ func ensureServerCert(store *Store, hosts []string, caPassphrase string) (certFi
 
 	// Prefer issuing from the root CA when we can unlock it.
 	if store.HasCA(caRoot) {
-		if caCert, caKey, lerr := loadCA(store, caRoot, caPassphrase); lerr == nil {
+		if caCert, caKey, lerr := loadCA(store, caRoot, ""); lerr == nil {
 			if der, cerr := x509.CreateCertificate(rand.Reader, tmpl, caCert, key.Public(), caKey); cerr == nil {
 				// Present a full chain: server leaf followed by the root.
 				rootPEM, _ := store.LoadCACertPEM(caRoot)

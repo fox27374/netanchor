@@ -127,6 +127,13 @@ func validateBackup(dir string) error {
 			id = records[serialString(cas[id].SerialNumber)].IssuerID
 		}
 	}
+	live := map[string]bool{}
+	for id := range cas {
+		live[id] = true
+	}
+	if err := validateCASecrets(dir, live); err != nil {
+		return err
+	}
 	var templates []CertTemplate
 	if err := backupJSON(s.templatesPath(), &templates); err != nil {
 		return err
@@ -189,8 +196,13 @@ func validateBackup(dir string) error {
 			}
 			historyCerts[serial] = c
 		}
+		trashed := map[string]bool{}
 		for id, c := range tca {
 			historyCAs[id] = append(historyCAs[id], c)
+			trashed[id] = true
+		}
+		if err := validateCASecrets(p, trashed); err != nil {
+			return err
 		}
 		historyRecords = append(historyRecords, removed...)
 	}
@@ -397,6 +409,28 @@ func validateDefinitions(dir string) error {
 			return fmt.Errorf("invalid definition %q: %w", d.Name, err)
 		}
 		ids[d.ID], names[strings.ToLower(d.Name)] = true, true
+	}
+	return nil
+}
+
+// validateCASecrets accepts only regular, bounded passphrase files named by a CA
+// ID that exists in the same tree (live CAs, or CAs in one trash entry).
+func validateCASecrets(dir string, ids map[string]bool) error {
+	entries, err := os.ReadDir(filepath.Join(dir, caSecretsRoot))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || !ids[e.Name()] || info.Size() > caSecretLimit {
+			return errors.New("invalid CA passphrase file " + e.Name())
+		}
 	}
 	return nil
 }
