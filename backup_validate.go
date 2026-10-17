@@ -132,12 +132,12 @@ func validateBackup(dir string) error {
 		return err
 	}
 	if len(templates) > 10000 {
-		return errors.New("too many profiles")
+		return errors.New("too many templates")
 	}
 	names = map[string]bool{}
 	for _, t := range templates {
 		if names[strings.ToLower(t.Name)] || t.Builtin {
-			return errors.New("invalid custom profiles")
+			return errors.New("invalid custom templates")
 		}
 		names[strings.ToLower(t.Name)] = true
 		if err := t.normalize(); err != nil {
@@ -146,7 +146,7 @@ func validateBackup(dir string) error {
 		// Deleted CA restrictions may legitimately remain on a profile.
 		for _, id := range t.AllowedIssuers {
 			if !backupCAID(id) {
-				return errors.New("invalid profile issuer")
+				return errors.New("invalid template issuer")
 			}
 		}
 	}

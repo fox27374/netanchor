@@ -49,7 +49,7 @@
       <label><input type="radio" name="kind" value="shared" id="kind-shared"> Shared (reusable, by source address range)</label>
     </div>
     <div class="form-grid-3">
-      <div><label for="sprofile">Server profile (<a href="/templates">add</a>)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select></div>
+      <div><label for="sprofile">Server template (<a href="/templates">add</a>)</label><select id="sprofile" name="profile">{{range $v.Profiles}}<option value="{{if .Builtin}}builtin:{{end}}{{.Name}}">{{.Name}}</option>{{end}}</select></div>
       <div><label for="sdays">Certificate days</label><input id="sdays" name="days" type="number" min="1" max="36500" value="365"></div>
       <div class="kind-device"><label for="shours">Challenge expiry (hours, 1–168)</label><input id="shours" name="hours" type="number" min="1" max="168" value="24"></div>
       <div class="kind-shared"><label for="shexpiry">Challenge expiry (days, 1–365)</label><input id="shexpiry" name="expiry" type="number" min="1" max="365" value="30"></div>
@@ -70,15 +70,15 @@
     <div>
       <p><strong>One device:</strong> issued SANs are exactly those authorized here, even if absent from the CSR. Extra CSR SANs are rejected. The challenge works once; same-transaction retries are answered for seven days.</p>
       <p><strong>Shared:</strong> the source address must be inside a listed range and becomes the only IP SAN. Names are accepted only under a listed suffix (a label boundary, so <code>evil-example.net</code> does not match <code>example.net</code>) and only if they resolve to the source address or name an inventory device at it. Residual risk: anyone holding the secret on a device inside a listed range can obtain a certificate for that device's own address.</p>
-      <p>Certificate days are capped by the profile and by the issuer's expiry.</p>
+      <p>Certificate days are capped by the template and by the issuer's expiry.</p>
       <p>Revoking a challenge does not revoke certificates already issued. Revoked or expired challenges can be deleted; issued certificates stay.</p>
     </div>
   </details>
 </div>
 
-<div class="panel">
+<div class="panel" id="challenges">
   <h3>Challenges</h3>
-  <table class="stack"><thead><tr><th>Kind / status</th><th>Profile</th><th>Scope</th><th>Certificates</th><th>Action</th></tr></thead><tbody>
+  <table class="stack"><thead><tr><th>Kind / status</th><th>Template</th><th>Scope</th><th>Certificates</th><th>Action</th></tr></thead><tbody>
   {{range $v.Shared}}<tr>
     <td>Shared · {{.Status}}<br><span class="muted">until {{.Expires.Format "2006-01-02 15:04"}}</span></td>
     <td>{{.Profile.Name}}<br><span class="muted">{{.Days}} days</span></td>

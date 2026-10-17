@@ -15,12 +15,12 @@
         <option value="">Select a CA</option>
         {{range $v.CAs}}<option value="{{.CAID}}" {{if eq .CAID $v.Form.CAID}}selected{{end}}>{{.DisplayPath}}</option>{{end}}
       </select></div>
-    <div><label for="profile">Profile</label>
+    <div><label for="profile">Template</label>
       <select id="profile" name="profile" required>
-        <option value="">Select a profile</option>
+        <option value="">Select a template</option>
         {{range $v.Profiles}}<option value="{{.}}" {{if eq . $v.Form.Profile}}selected{{end}}>{{.}}</option>{{end}}
       </select></div>
-    <div><label for="valid_days">Validity (days, capped by the profile and the CA)</label><input id="valid_days" name="valid_days" type="number" min="1" required value="{{$v.Form.ValidDays}}"></div>
+    <div><label for="valid_days">Validity (days, capped by the template and the CA)</label><input id="valid_days" name="valid_days" type="number" min="1" required value="{{$v.Form.ValidDays}}"></div>
   </div>
 </div>
 

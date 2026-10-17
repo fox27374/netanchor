@@ -9,7 +9,7 @@
 
     <div class="row">
       <div>
-        <label for="t_profile">Profile</label>
+        <label for="t_profile">Purpose</label>
         <select id="t_profile" name="profile">
           <option value="server" {{if eq (printf "%s" $t.Profile) "server"}}selected{{end}}>Server (TLS server auth)</option>
           <option value="client" {{if eq (printf "%s" $t.Profile) "client"}}selected{{end}}>Client (TLS client auth)</option>

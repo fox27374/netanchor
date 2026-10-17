@@ -121,7 +121,7 @@ func TestDefinitionRolesAndCSRF(t *testing.T) {
 	get.Header.Set("Cookie", cookie)
 	rec := httptest.NewRecorder()
 	routes.ServeHTTP(rec, get)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Device certificate definitions") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Certificate definitions") {
 		t.Fatalf("viewer cannot read definitions: %d", rec.Code)
 	}
 	if rec := deviceGetWithCookie(routes, "/definitions/new", cookie); rec.Code != http.StatusForbidden {

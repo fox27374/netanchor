@@ -280,6 +280,9 @@ const (
 	profileEmail  certProfile = "email"
 )
 
+// serverAuth reports whether certificates of this purpose carry TLS server auth.
+func (p certProfile) serverAuth() bool { return p == profileServer || p == profileBoth }
+
 func extKeyUsage(p certProfile) []x509.ExtKeyUsage {
 	switch p {
 	case profileClient:

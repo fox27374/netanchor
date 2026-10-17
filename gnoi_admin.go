@@ -131,7 +131,7 @@ func (s *Server) pushFromForm(w http.ResponseWriter, r *http.Request, admin stri
 	}
 	tmpl, ok := s.store.GetTemplate(def.Profile)
 	if !ok {
-		return fail("the definition's certificate profile no longer exists")
+		return fail("the definition's certificate template no longer exists")
 	}
 	ids := r.PostForm["device"]
 	if len(ids) == 0 {

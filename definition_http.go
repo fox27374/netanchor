@@ -43,7 +43,7 @@ func (s *Server) definitionProfiles() []string {
 
 func (s *Server) handleDefinitions(w http.ResponseWriter, r *http.Request) {
 	deviceHeaders(w)
-	d := s.base(r, "Device certificate definitions", "definitions")
+	d := s.base(r, "Certificate definitions", "definitions")
 	defs, err := s.store.ListDefinitions()
 	if err != nil {
 		d.Error = err.Error()
@@ -139,7 +139,7 @@ func (s *Server) definitionFromForm(f definitionForm) (CertDefinition, error) {
 	}
 	t, ok := s.store.GetTemplate(f.Profile)
 	if !ok || t.Profile != profileServer || !allowedAlgo(t, algoRSA2048) {
-		return def, errors.New("choose a server profile that allows RSA 2048 keys")
+		return def, errors.New("choose a server template that allows RSA 2048 keys")
 	}
 	if f.Country == "" || f.State == "" || f.Organization == "" {
 		return def, errors.New("country, state and organization are required by the device")

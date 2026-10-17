@@ -1,5 +1,5 @@
 {{define "content"}}
-<h2>Device certificate definitions</h2>
+<h2>Certificate definitions</h2>
 <div class="panel">
   <div class="dlhead">
     <p class="muted" style="margin:0">How device certificates look when pushed over gNOI. Each push uses one definition. Keys are RSA 2048 generated on the device.</p>
@@ -7,7 +7,7 @@
   </div>
   {{if .Data.Defs}}
   <table>
-    <thead><tr><th>Name</th><th>Cert ID</th><th>Profile</th><th>Organization</th><th>Validity</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Cert ID</th><th>Template</th><th>Organization</th><th>Validity</th><th></th></tr></thead>
     <tbody>
     {{range .Data.Defs}}
       <tr>

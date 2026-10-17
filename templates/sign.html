@@ -4,16 +4,16 @@
   <p class="muted">NetAnchor verifies the request signature and issues a certificate signed by your CA.</p>
   <form method="post" action="/sign" enctype="multipart/form-data">
     {{if .Data}}
-    <label for="template">Certificate profile</label>
+    <label for="template">Certificate template</label>
     <select id="template" name="template" required>
-      <option value="">— select profile —</option>
+      <option value="">— select template —</option>
       <optgroup label="Built-in">{{range .Data.Builtins}}<option title="{{.Description}}" value="builtin:{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{if .Data.Custom}}<optgroup label="Custom">{{range .Data.Custom}}<option title="{{.Description}}" value="{{.Name}}" data-days="{{.ValidDays}}" data-max="{{.MaxDays}}" data-issuers="{{joinStrings .AllowedIssuers}}">{{.Name}}</option>{{end}}</optgroup>{{end}}
     </select>
 
     <details class="adv">
-      <summary>What a certificate profile determines</summary>
+      <summary>What a certificate template determines</summary>
       <div>
-        <p class="muted" style="font-size:12px;margin:0">A profile sets the certificate purpose and permitted issuers. The requester's private key stays with them; this profile and the CSR determine the subject and key.</p>
+        <p class="muted" style="font-size:12px;margin:0">A template sets the certificate purpose and permitted issuers. The requester's private key stays with them; this template and the CSR determine the subject and key.</p>
       </div>
     </details>
     {{end}}
@@ -34,7 +34,7 @@
       </div>
       <div>
         <label for="valid_days">Validity (days)</label>
-        <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Profile default">
+        <input id="valid_days" name="valid_days" type="number" min="1" placeholder="Template default">
       </div>
     </div>
 

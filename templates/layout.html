@@ -256,11 +256,11 @@
       <a href="/templates" {{if eq .Active "templates"}}class="active" aria-current="page"{{end}}>Templates</a>
       {{end}}
       <a href="/certificates" {{if eq .Active "certificates"}}class="active" aria-current="page"{{end}}>Issued certificates</a>
-      <a href="/definitions" {{if eq .Active "definitions"}}class="active" aria-current="page"{{end}}>Device certificate definitions</a>
     </div>
     <div class="nav-group" role="group" aria-labelledby="devices-nav">
       <h2 class="nav-heading" id="devices-nav">Device Management</h2>
       <a href="/devices" {{if eq .Active "devices"}}class="active" aria-current="page"{{end}}>Devices</a>
+      <a href="/definitions" {{if eq .Active "definitions"}}class="active" aria-current="page"{{end}}>Certificate definitions</a>
       {{if .IsAdmin}}<a href="/push" {{if eq .Active "push"}}class="active" aria-current="page"{{end}}>Push</a>{{end}}
       <a href="/admin/scep" {{if eq .Active "scep"}}class="active" aria-current="page"{{end}}>SCEP</a>
     </div>
