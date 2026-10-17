@@ -31,6 +31,7 @@
   main { flex:1; min-width:0; width:100%; max-width:1600px; margin:0 auto; padding:32px; }
   h2 { font-weight:600; margin-top:0; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; margin-bottom:24px; }
+  [hidden] { display:none !important; }
   label { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
   input, select, textarea { width:100%; padding:10px 12px; background:var(--field); border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; }
   textarea { resize:vertical; min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -344,8 +345,8 @@
     });
   }
 
-  // A CA <select data-passphrase="ID"> makes input #ID required exactly when
-  // the selected option has data-enc="true" (its key is passphrase-protected).
+  // A CA <select data-passphrase="ID"> shows input #ID, required, only when the
+  // selected option has data-enc="true" (its key is protected and not unlocked).
   document.querySelectorAll('select[data-passphrase]').forEach(function (sel) {
     var pass = document.getElementById(sel.dataset.passphrase);
     var lbl = document.querySelector('label[for="' + pass.id + '"]');
@@ -355,9 +356,10 @@
       var enc = !!opt && opt.dataset.enc === 'true';
       pass.required = enc;
       pass.disabled = !enc;
+      pass.hidden = lbl.hidden = !enc;
       if (!enc) pass.value = '';
-      lbl.textContent = base + (enc ? ' (required, the key is protected)' : opt && opt.dataset.unlocked ? ' (not needed, the CA is unlocked)' : ' (not needed, the key is not protected)');
-      pass.placeholder = enc ? 'Passphrase of the selected CA' : '';
+      lbl.textContent = base + ' (required, the CA is locked)';
+      pass.placeholder = 'Passphrase of the selected CA';
     }
     sel.addEventListener('change', sync);
     sync();
