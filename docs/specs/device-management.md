@@ -69,9 +69,9 @@ certificates to one or many devices over gNOI without touching the device CLI.
   against it. To manage all devices, set `NETANCHOR_GNOI_ALLOW=0.0.0.0/0,::/0`;
   narrow it to management networks where possible. Empty still refuses all.
 
-## Device certificate definitions
-- Fields: name, issuing CA, profile (existing templates), Country, State,
-  Organization (required), City, OU (optional), validity days (capped by profile),
+## Certificate definitions
+- Fields: name, issuing CA, certificate template, Country, State,
+  Organization (required), City, OU (optional), validity days (capped by template),
   cert_id (default `netanchor-<name>`), common name and DNS/IP SAN lists (comma separated).
 - Common name and SAN entries are templates filled from each device at push time:
   `{{ fqdn }}`, `{{ name }}`, `{{ ip }}` (spaces optional, plain text allowed). Defaults:
@@ -81,7 +81,7 @@ certificates to one or many devices over gNOI without touching the device CLI.
   entry that is not an IP after filling fails the device. Unknown placeholders and stray
   braces are refused at save time and on restore.
 - Definitions saved before templates are converted on load (CN from the old CN source,
-  SANs from the old FQDN and extra SANs). Key fixed RSA 2048, checked against profile policy.
+  SANs from the old FQDN and extra SANs). Key fixed RSA 2048, checked against template policy.
 
 ## Push
 - Pick one definition and one or more devices; CA passphrase asked once, never stored.

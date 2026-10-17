@@ -16,7 +16,7 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 - Admin-only "Push to device (gNOI)" page modelled on `scep_admin.go`. Always on,
   no enable flag (same as SCEP). Outbound gRPC only: no new listener or port.
 - Flow (CSR, per Phase 0): `CanGenerateCSR`, then `Install` stream (new cert_id) with
-  `GenerateCSR`; NetAnchor signs the returned CSR (chosen CA and profile, under
+  `GenerateCSR`; NetAnchor signs the returned CSR (chosen CA and template, under
   sign-CSR rules) and sends `LoadCertificate` (cert + CA chain, no key). `Rotate` for
   an existing cert_id (untested, not in Phase 1). Private keys never exist in
   NetAnchor. SANs come from the form; any SANs in the device CSR are ignored.
@@ -27,9 +27,9 @@ Cisco IOS-XE and NX-OS. SCEP already exists and is out of scope.
 - Form: host:port; auth (user/password; credentials used once, never
   stored); server verification (the pinned SHA-256 fingerprint only; a device without a
   pin is refused before any connection);
-  CA + profile; CN + SANs; Country, State, Organization (required by IOS-XE for the
+  CA + template; CN + SANs; Country, State, Organization (required by IOS-XE for the
   CSR); cert_id (default sanitised CN); key size fixed to RSA 2048 (device offers RSA
-  only), checked against profile policy.
+  only), checked against template policy.
 - Step-by-step result display: connect, auth, capabilities, generate, sign, install,
   verify.
 - Warning on the page: installing a cert can rebind the switch's own gNMI/gNOI server
