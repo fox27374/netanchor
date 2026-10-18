@@ -423,7 +423,7 @@ func TestIssueSignAndTemplateEditHTTP(t *testing.T) {
 	dashboardReq.AddCookie(flash)
 	issuedDashboard := httptest.NewRecorder()
 	handler.ServeHTTP(issuedDashboard, dashboardReq)
-	if !strings.Contains(issuedDashboard.Body.String(), "Certificate issued") || !strings.Contains(issuedDashboard.Body.String(), "Dismiss notification") || !strings.Contains(issuedDashboard.Body.String(), "/cert/") {
+	if !strings.Contains(issuedDashboard.Body.String(), "Certificate issued") || !strings.Contains(issuedDashboard.Body.String(), "Dismiss notification") || !strings.Contains(issuedDashboard.Body.String(), "/certificates") {
 		t.Fatalf("dashboard missing issued certificate or notice: %s", issuedDashboard.Body.String())
 	}
 	again := httptest.NewRecorder()
@@ -481,7 +481,7 @@ func TestIssueSignAndTemplateEditHTTP(t *testing.T) {
 		t.Fatalf("forged profile changed server template EKU: %v", cert.ExtKeyUsage)
 	}
 	dashboard := httptest.NewRecorder()
-	handler.ServeHTTP(dashboard, httptest.NewRequest("GET", "/", nil))
+	handler.ServeHTTP(dashboard, httptest.NewRequest("GET", "/certificates", nil))
 	if !strings.Contains(dashboard.Body.String(), `<th>Template</th>`) || !strings.Contains(dashboard.Body.String(), "TLS-Server") {
 		t.Fatal("issued-certificates overview omits template")
 	}

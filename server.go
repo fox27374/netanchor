@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -265,23 +266,129 @@ func (s *Server) getIssueCAs() []caOptionData {
 
 // --- dashboard -----------------------------------------------------------
 
+// certStatus classifies a certificate by time left: expired, expiring (within deviceExpiryWarn), or valid.
+func certStatus(notAfter, now time.Time) string {
+	switch {
+	case !notAfter.After(now):
+		return "expired"
+	case notAfter.Sub(now) <= deviceExpiryWarn:
+		return "expiring"
+	}
+	return "valid"
+}
+
+// isLeaf reports whether a record is an end-entity certificate rather than a CA.
+func isLeaf(r CertRecord) bool { return r.Kind == "issued" || r.Kind == "csr" }
+
+// certCounts feeds the dashboard tiles.
+type certCounts struct{ Total, Valid, Expiring, Expired int }
+
+func countCerts(recs []CertRecord, now time.Time) certCounts {
+	var c certCounts
+	for _, r := range recs {
+		if !isLeaf(r) {
+			continue
+		}
+		c.Total++
+		switch certStatus(r.NotAfter, now) {
+		case "valid":
+			c.Valid++
+		case "expiring":
+			c.Expiring++
+		default:
+			c.Expired++
+		}
+	}
+	return c
+}
+
+// certFilter is the /certificates query. Zero fields match everything.
+type certFilter struct{ Q, Status, Issuer, Type, Template string }
+
+func (f certFilter) match(r CertRecord, now time.Time) bool {
+	switch {
+	case !isLeaf(r):
+		return false
+	case f.Q != "" && !strings.Contains(strings.ToLower(r.CommonName), strings.ToLower(f.Q)):
+		return false
+	case f.Status != "" && certStatus(r.NotAfter, now) != f.Status:
+		return false
+	case f.Issuer != "" && r.IssuerID != f.Issuer:
+		return false
+	case f.Type == "scep" && r.Provenance != "scep":
+		return false
+	case (f.Type == "issued" || f.Type == "csr") && r.Kind != f.Type:
+		return false
+	case f.Template != "" && r.TemplateName != f.Template:
+		return false
+	}
+	return true
+}
+
+// certRow is a leaf certificate with its status, for the certificates table.
+type certRow struct {
+	CertRecord
+	Status string
+}
+
+// filterCerts returns the leaf certificates matching f, soonest expiry first.
+func filterCerts(recs []CertRecord, f certFilter, now time.Time) []certRow {
+	var out []certRow
+	for _, r := range recs {
+		if f.match(r, now) {
+			out = append(out, certRow{r, certStatus(r.NotAfter, now)})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b certRow) int { return a.NotAfter.Compare(b.NotAfter) })
+	return out
+}
+
+// caNode is one CA in the dashboard tree.
+type caNode struct {
+	CAInfo
+	Indent int // px
+	Status string
+}
+
+// caTree lists the root and its CAs depth-first, each directly under its parent.
+func caTree(cas []CAInfo, now time.Time) []caNode {
+	kids := map[string][]CAInfo{}
+	for _, ca := range cas {
+		if ca.ID != caRoot {
+			kids[ca.ParentID] = append(kids[ca.ParentID], ca)
+		}
+	}
+	var out []caNode
+	var walk func(id string, indent int)
+	walk = func(id string, indent int) {
+		for _, ca := range kids[id] {
+			out = append(out, caNode{ca, indent, certStatus(ca.Record.NotAfter, now)})
+			walk(ca.ID, indent+24)
+		}
+	}
+	for _, ca := range cas {
+		if ca.ID == caRoot {
+			out = append(out, caNode{ca, 0, certStatus(ca.Record.NotAfter, now)})
+			walk(caRoot, 24)
+		}
+	}
+	return out
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	recs, err := s.store.Records()
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	paths := map[string]string{}
 	cas, _ := s.store.CAs()
-	for _, ca := range cas {
-		paths[ca.ID] = ca.Path
-	}
+	now := time.Now()
 	d := s.base(r, "Dashboard", "dashboard")
 	d.Flash = s.takeFlash(w, r, issueFlashCookie, "/")
 	d.Data = struct {
-		Recs  []CertRecord
-		Paths map[string]string // CA id -> "Root › A › B"
-	}{recs, paths}
+		Tree   []caNode
+		Counts certCounts
+	}{caTree(cas, now), countCerts(recs, now)}
 	s.render(w, "dashboard", d)
 }
 
@@ -296,11 +403,38 @@ func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
 	for _, ca := range cas {
 		paths[ca.ID] = ca.Path
 	}
+	var tmpls []string
+	for _, rec := range recs {
+		if isLeaf(rec) && rec.TemplateName != "" && !slices.Contains(tmpls, rec.TemplateName) {
+			tmpls = append(tmpls, rec.TemplateName)
+		}
+	}
+	slices.Sort(tmpls)
+	q := r.URL.Query()
+	f := certFilter{Q: q.Get("q"), Status: q.Get("status"), Issuer: q.Get("issuer"), Type: q.Get("type"), Template: q.Get("template")}
+	// unknown values mean no filter
+	if !slices.Contains([]string{"valid", "expiring", "expired"}, f.Status) {
+		f.Status = ""
+	}
+	if !slices.Contains([]string{"issued", "csr", "scep"}, f.Type) {
+		f.Type = ""
+	}
+	if !s.store.ValidCAID(f.Issuer) {
+		f.Issuer = ""
+	}
+	if !slices.Contains(tmpls, f.Template) {
+		f.Template = ""
+	}
+	now := time.Now()
 	d := s.base(r, "Issued certificates", "certificates")
 	d.Data = struct {
-		Recs  []CertRecord
-		Paths map[string]string // CA id -> "Root › A › B"
-	}{recs, paths}
+		Rows      []certRow
+		Total     int
+		Filter    certFilter
+		Paths     map[string]string // CA id -> "Root › A › B"
+		Issuers   []caOptionData
+		Templates []string
+	}{filterCerts(recs, f, now), countCerts(recs, now).Total, f, paths, s.getIssueCAs(), tmpls}
 	s.render(w, "certificates", d)
 }
 
