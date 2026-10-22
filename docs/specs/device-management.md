@@ -84,7 +84,8 @@ certificates to one or many devices over gNOI without touching the device CLI.
   SANs from the old FQDN and extra SANs). Key fixed RSA 2048, checked against template policy.
 
 ## Push
-- Pick one definition and one or more devices; CA passphrase asked once, never stored.
+- Pick one definition and one or more devices. The CA passphrase field appears only
+  when the definition's CA is locked; then it is asked once per push, never stored.
 - Devices processed one at a time; a failure does not stop the rest. Per-device steps
   (connect, auth, capabilities, generate, sign, install, verify) and outcome in a
   results panel next to the push button.

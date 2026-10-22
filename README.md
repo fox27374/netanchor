@@ -2,7 +2,8 @@
 
 A simple, web-based certificate authority written in Go — single static binary.
 It uses pure-Go libraries for PKCS#12 (`software.sslmate.com/src/go-pkcs12`)
-and SCEP/CMS (`github.com/smallstep/scep` and `github.com/smallstep/pkcs7`),
+SCEP/CMS (`github.com/smallstep/scep` and `github.com/smallstep/pkcs7`), and
+gNOI device pushes (`github.com/openconfig/gnoi` over `google.golang.org/grpc`),
 with no cgo. The rest uses the standard library:
 
 - `net/http` (Go 1.22+ method/pattern routing) for the web GUI
@@ -32,8 +33,10 @@ with no cgo. The rest uses the standard library:
   single-use challenges, and durable same-request retries. See limitations below.
 - **Passphrase protection** — optionally encrypt a CA's private key at rest
   (PBKDF2-SHA256 + AES-256-GCM). Creating a CA with a passphrase saves it to a
-  file in the CA secrets directory, so the CA unlocks at startup; otherwise the
-  passphrase is asked for each issue, sign or push, and is not stored.
+  file in the CA secrets directory, so the CA unlocks at startup. Issue, Sign CSR
+  and Push show no passphrase field for unlocked or unencrypted CAs. Only a locked
+  CA (encrypted, no valid passphrase file) shows the field; that passphrase is
+  used for the one operation and is not stored.
 - **Authentication & roles** — login-gated UI with two roles:
   - **admin** — full control: manage CAs, issue, sign, download private keys, manage users
   - **viewer** — read-only: view and download public certificates and chains (no private keys, no issuing)
@@ -73,6 +76,9 @@ with no cgo. The rest uses the standard library:
   (for admins) private keys to PEM/DER or matching cert + key + chain to
   password-protected PKCS#12. Inputs are not stored on disk; results expire
   from memory after ten minutes.
+- **Logs** — admins view the application log under **Management → Logs** (also
+  `/logs.txt`). It is written to `<data>/logs/netanchor.log` and rotated once to
+  `netanchor.log.1`.
 
 Everything is stored under the data directory as PEM/JSON. Downloaded **leaf**
 private keys are always standard, unencrypted PKCS#8 so other tools (nginx,
@@ -99,6 +105,7 @@ the admin account.
 | `-addr` | `NETANCHOR_ADDR`          | `127.0.0.1:8443`   | Address to listen on                          |
 | `-data` | `NETANCHOR_DATA`          | `./netanchor-data`   | Directory for all data                        |
 | `-health` | —                     | —                  | Probe a running server's `/healthz` and exit  |
+| `-version` | —                    | —                  | Print version and exit                        |
 |         | `NETANCHOR_TLS`           | `on`               | Set to `off` to serve plain HTTP (e.g. behind a TLS-terminating proxy) |
 |         | `NETANCHOR_TLS_HOSTS`     | `localhost,127.0.0.1` | SANs for the auto-generated server certificate |
 |         | `NETANCHOR_CA_SECRETS_DIR` | `<data>/ca-secrets` | Directory with one passphrase file per encrypted CA, named by CA ID (`root` for the root). Created with mode 0600 when a CA is created with a passphrase. Read at startup; every CA whose passphrase decrypts its key is unlocked. Keeps the HTTPS certificate issued by the root after restart |
@@ -344,35 +351,44 @@ for source references and release-specific uncertainties.
 
 ## Push to device (gNOI), IOS-XE
 
-Admins can push a NetAnchor-issued certificate and its CA chain to a switch over
-gNOI Certificate Management (`Admin > Push to device (gNOI)`). NetAnchor only makes
+Admins push certificates and their CA chain to one or more switches over gNOI
+Certificate Management (**Device Management → Push**). NetAnchor only makes
 outbound gRPC connections; it opens no new listener.
 
-- The device generates an RSA 2048 key and CSR (`Install` stream, `GenerateCSR`).
-  NetAnchor signs the CSR under the selected CA and template, using the normal
-  sign-CSR rules. SANs come from the form, and SANs and extensions in the device CSR
-  are ignored. The chain is sent with `LoadCertificate`. No private key exists in
-  NetAnchor.
-- Country, state and organization are required; IOS-XE refuses CSR generation without them.
-- The device server is verified by its SHA-256 fingerprint only: you fetch it, confirm it,
-  and NetAnchor connects only when the certificate matches. There is no CA trust and no
-  unverified mode.
-- An existing certificate id is refused. Only installs are supported: no rotate,
-  revoke, CA bundle load or key import.
-- **Installing a certificate can rebind the switch's gNMI/gNOI server to it.** The page
-  requires you to acknowledge this. Revoking that certificate later can take the
-  server down.
-- After install, NetAnchor reconnects and lists certificates for up to 30 seconds. If
-  the device does not answer, the push is reported as "installed, could not verify",
-  not as failed. The whole push is capped at 60 seconds, so a slow connect shortens
-  the verify window.
-- Each push is recorded on the certificate's details page as "Pushed to <host>".
-  Credentials are never stored or logged. Pushes that fail before signing leave no record.
+- A push uses one **device certificate definition** (**Certificate Management →
+  Device certificate definitions**): issuing CA, template, Country, State and
+  Organization (required; IOS-XE refuses CSR generation without them), optional
+  City and OU, validity, cert_id (default `netanchor-<name>`), common name and
+  DNS/IP SANs. Common name and SANs are filled per device from `{{ fqdn }}`,
+  `{{ name }}` and `{{ ip }}`; nothing else is added. An empty placeholder drops
+  that SAN; an empty common name fails that device.
+- Pick a definition and one or more devices. The CA passphrase field appears only
+  when the definition's CA is locked. Devices without stored credentials are asked
+  for them.
+- Per device: the device generates an RSA 2048 key and CSR (`Install` stream,
+  `GenerateCSR`), NetAnchor signs it under the definition's CA and template with
+  the normal sign-CSR rules (SANs and extensions in the device CSR are ignored,
+  validity backdated 24 hours for drifting switch clocks), and sends the chain
+  with `LoadCertificate`. No private key exists in NetAnchor.
+- Devices are processed one at a time; a failure does not stop the rest. Each
+  device's steps and outcome show in a results panel. Timeouts: 10 seconds to
+  connect, 60 seconds per device overall.
+- The device server is verified by its pinned SHA-256 fingerprint only (see
+  Devices). There is no CA trust and no unverified mode.
+- A device that already has the definition's cert_id is skipped ("already
+  installed; renewal comes with Rotate"). Only installs are supported: no rotate,
+  CA bundle load or key import.
+- **Installing a certificate can rebind the switch's gNMI/gNOI server to it.** If
+  the server then presents the new certificate, the device's pin is updated to it.
+- After install, NetAnchor reconnects and lists certificates for up to 30 seconds.
+  If the device does not answer, the result is "installed, could not verify", not
+  failed.
+- Each push is recorded on the certificate's details page and the device page.
+  Credentials are never logged.
 - Targets are checked against `NETANCHOR_GNOI_ALLOW`. Every address the host
   resolves to must be inside the list, and NetAnchor dials the checked address.
-- Unit tests use a fake in-process gNOI server. A Phase 0 spike on a Catalyst 9000
-  (IOS-XE 17.18.2) confirmed the CSR flow; the end-to-end push is not yet verified on
-  hardware. NX-OS is untested.
+- Unit tests use a fake in-process gNOI server. Tested on a Catalyst 9000
+  (IOS-XE 17.18.2); NX-OS is untested.
 
 ## Devices
 
@@ -561,9 +577,18 @@ a passphrase; there is no recovery if you forget it.
 | `store.go`     | File-backed persistence + metadata index                    |
 | `backup*.go`, `restore.go` | Encrypted archives, validation, operation barrier, durable replacement/recovery |
 | `server.go`    | HTTP routes, handlers, template rendering                    |
+| `ca_unlock.go` | Unlocked-CA keyring, CA secrets directory, startup unlock   |
+| `profile_policy.go` | Template policy enforcement on issue and sign          |
+| `tools.go`     | Tools inspector and converter                               |
+| `applog.go`    | Application log file and Logs page                          |
+| `device_*.go`  | Device inventory, encrypted credentials, fingerprint probe, test/refresh/revoke |
+| `definition_*.go` | Device certificate definitions and placeholder filling   |
+| `gnoi_push.go`, `gnoi_admin.go` | gNOI client (CSR, sign, load, verify) and Push page |
 | `scep_protocol.go` | SCEP/CMS policy checks, enrollment and protocol HTTP routes |
 | `scep_store.go` | CA unlock state, challenge journal and issuance recovery |
 | `scep_admin.go` | Admin-only SCEP selection, lock and challenge UI |
+| `scep_shared.go` | Shared (multi-device) SCEP challenges                    |
+| `scep_asn1.go` | ASN.1 preflight limits for SCEP requests                    |
 | `templates/`   | Embedded HTML UI                                             |
 | `Containerfile`| Multi-stage build → static binary on Alpine, non-root       |
 | `k8s/`         | Kustomize base: Deployment, PVC, Service, Gateway API Gateway + HTTPRoute |
